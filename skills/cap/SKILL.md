@@ -35,7 +35,14 @@ Commit and push the current working tree in one shot.
    - If the branch has no upstream, push with `-u origin <branch>`; otherwise plain `git push`
    - If pre-commit hooks fail, fix the issue and create a new commit (never `--amend`, never `--no-verify`)
 
-7. **Report**: the short SHA, the message, and the push destination. One line.
+7. **Handle non-fast-forward rejections** — if push is rejected because the remote moved ahead:
+   - Run `git pull --rebase` to replay your local commits on top of the remote tip. This is safe — you're only rebasing **your unpushed commits**, which no one else has.
+   - If the rebase hits conflicts: stop, surface the conflicting paths, and let the user resolve. Do not auto-resolve.
+   - After a clean rebase, retry `git push`.
+   - Do **not** fall back to a merge pull (`git pull` without `--rebase`) — that creates noisy `Merge branch 'main' of origin/...` commits, which is exactly what we're avoiding.
+   - Do **not** force-push to recover from a rejection.
+
+8. **Report**: the short SHA, the message, and the push destination. One line.
 
 ## Rules
 
