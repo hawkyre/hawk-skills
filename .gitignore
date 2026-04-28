@@ -1,0 +1,5 @@
+.DS_Store
+.plans/
+.agents/
+node_modules/
+*.log
