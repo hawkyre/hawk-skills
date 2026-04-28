@@ -123,6 +123,12 @@ Same pattern shows up in `code-audit-hardcore`, `implement-plan-audited`, and th
 | [`design-master`](skills/design-master/SKILL.md) | Design system from first principles — color, typography, spacing, motion.        |
 | [`init-phoenix`](skills/init-phoenix/SKILL.md)   | Bootstrap a Docker-based Phoenix project with the BEAM/macOS gotchas pre-solved. |
 
+### Git
+
+| Skill                            | Job                                                                                                  |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| [`cap`](skills/cap/SKILL.md)     | Stage, commit with a short message matching the repo's commit style, and push. No fuss.             |
+
 ## Quick taste
 
 Once installed, just type:
