@@ -23,7 +23,7 @@ This is the entry point for all work. It identifies the task type and routes to 
    | Delete feature / remove dead code / drop dependency | `/remove-code` | Removing capability |
    | Bug fix / error / crash / wrong behavior | `/fix-bug` | Something is broken |
    | Code review / audit / PR review | `/code-audit` | Reviewing code quality |
-   | Whole-repo deep clean / "leave it spotless" | `/code-audit-hardcore` | Repo-wide cleanup, override conventions, route big fixes through plan skills |
+   | Aggressive cleanup of changes + tangibly-related code | `/code-audit-hardcore` | Same scope as code-audit, always-improve posture across related code (setup, wiring, siblings); big refactors route through plan skills |
    | Large PR review (30+ files) | `/review-large-pr` | PR too large for single audit |
    | Refactor / improve without behavior change | `/refactor` | Improving existing code |
    | Understand / explore / onboard | `/learn-system` | Building mental models |
