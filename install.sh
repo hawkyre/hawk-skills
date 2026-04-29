@@ -254,10 +254,6 @@ if (( interactive )); then
   IFS= read -r prefix <"$tty_in" || prefix=""
   prefix="${prefix#"${prefix%%[![:space:]]*}"}"   # ltrim
   prefix="${prefix%"${prefix##*[![:space:]]}"}"   # rtrim
-  if [[ -n "$prefix" && ! "$prefix" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-    fail "prefix must contain only letters, digits, hyphens, or underscores (got: $prefix)"
-    exit 2
-  fi
   printf '\n'
 fi
 

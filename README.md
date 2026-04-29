@@ -47,6 +47,8 @@ curl -fsSL https://raw.githubusercontent.com/hawkyre/hawk-skills/main/install.sh
 
 The installer drops every selected skill into `~/.claude/skills/`. Re-run any time to refresh.
 
+To remove what you installed, run `./uninstall.sh` from a checkout — interactive picker, with `--dry-run`, `--all`, and `--prefix <p>` flags. It only touches directories whose `SKILL.md` description matches what we ship, so unrelated skills with colliding names are left alone.
+
 ## The idea: blind, parallel, independent subagents
 
 Most of the heavy skills here fan out to subagents that work **in parallel**, with a deliberately **narrow brief**, and **no context on the overall goal**. They don't read the plan. They don't know what feature this is. They see only the code, the standards, and their specialist brief.
@@ -102,7 +104,7 @@ Same pattern shows up in `code-audit-hardcore`, `implement-plan-audited`, and th
 | Skill                                                              | Job                                                                                                                                              |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [`implement-plan`](skills/implement-plan/SKILL.md)                 | Execute an approved plan, increment by increment. Runs independent increments in parallel.                                                       |
-| [`implement-plan-audited`](skills/implement-plan-audited/SKILL.md) | Same, but the five audit specialists run after every increment. `mode=auto` runs unattended for hours; falls back to manual on repeated failure. |
+| [`implement-plan-audited`](skills/implement-plan-audited/SKILL.md) | Same, but the five audit specialists run at strategic checkpoints (after a few S, two M, or one L — annotated into the plan up front). `mode=auto` runs unattended for hours; falls back to manual on repeated failure. |
 
 ### Quality
 
@@ -164,6 +166,7 @@ The project check command (`bun run c`, `pnpm typecheck`, `mix test`, etc.) is l
 ```
 hawk-skills/
 ├── install.sh          # one-shot installer (TUI + curl-pipe support)
+├── uninstall.sh        # interactive uninstaller
 ├── README.md
 ├── LICENSE
 └── skills/

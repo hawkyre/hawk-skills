@@ -1,15 +1,21 @@
 ---
 name: implement-plan-audited
-description: Execute a plan increment-by-increment with the five code-audit specialists running independently after each increment. Two modes — `manual` stops between increments for user review, `auto` applies audit fixes and proceeds without interruption (designed for hours of unattended execution). Audit subagents are blind to the plan and the goal, so they evaluate code on its own merits.
+description: Execute a plan increment-by-increment with the five code-audit specialists running independently at strategic checkpoints. Before execution, the orchestrator annotates the plan with audit checkpoints based on increment sizes (e.g. after a single L, after two M, after a few S). Two modes — `manual` stops between increments for user review, `auto` applies audit fixes and proceeds without interruption (designed for hours of unattended execution). Audit subagents are blind to the plan and the goal, so they evaluate code on its own merits.
 ---
 
 # Implement Plan (Audited)
 
-Same execution shape as `implement-plan`, with one addition: after every
-increment passes the project check command, the **five code-audit
-specialists** run in parallel against the increment's diff and either
-auto-apply their fixes (auto mode) or surface them for user review
-(manual mode).
+Same execution shape as `implement-plan`, with one addition: at strategic
+**audit checkpoints** (not after every increment), the **five code-audit
+specialists** run in parallel against the cumulative diff since the
+previous checkpoint and either auto-apply their fixes (auto mode) or
+surface them for user review (manual mode).
+
+Checkpoints are computed and written into the plan file before
+execution starts, so audits happen after a few small increments, after
+two medium increments, after a single large increment, etc. — not after
+every single increment. A 10-increment plan typically gets ~3 audits,
+not 10.
 
 The specialists are independent and blind. They do not read the plan, the
 increment text, or the user's goal. They see only the diff and their
@@ -20,12 +26,13 @@ defends the plan; an audit that only sees the code evaluates the code.
 ## When to use this skill vs `implement-plan`
 
 - `implement-plan` — trust the plan, get it done.
-- `implement-plan-audited` (manual) — the plan is a starting point; each
-  increment gets stress-tested before the next starts. Stops between
+- `implement-plan-audited` (manual) — the plan is a starting point;
+  work gets stress-tested at audit checkpoints (after a few small
+  increments / a couple of mediums / one large). Stops between
   increments so you can review.
-- `implement-plan-audited` (auto) — same audit per increment, but no
-  user gate. Use when you want to leave a plan running for hours and
-  come back to a finished, audited result. Failure auto-falls-back to
+- `implement-plan-audited` (auto) — same checkpoint cadence, no user
+  gate. Use when you want to leave a plan running for hours and come
+  back to a finished, audited result. Failure auto-falls-back to
   manual.
 
 ## Args
@@ -45,7 +52,70 @@ common mistakes, summarize to the user.
 ### Step 1 — Bootstrap context
 
 Same as `implement-plan` Step 1. Capture the project check command. The
-orchestrator will need it for verification gates.
+orchestrator will need it for verification gates. Also capture the
+current git ref (`git rev-parse HEAD`) — the first checkpoint's audit
+diff is computed against it.
+
+### Step 1.5 — Annotate audit checkpoints into the plan
+
+Before any code is written, walk the plan's increments in order and
+decide where audits will run. The result is written **into the plan
+file** as `**Audit checkpoint:** yes` lines under selected increments
+so that:
+
+- The cadence is visible to the user before execution starts.
+- A fresh session resuming the plan inherits the same cadence.
+- The execution loop has a single source of truth.
+
+**Heuristic** — assign each increment a weight by its size estimate:
+
+| Size | Weight |
+| ---- | ------ |
+| S    | 1      |
+| M    | 2      |
+| L    | 4      |
+
+Walk increments in dependency order. Maintain a running
+`accumulated_weight`, starting at 0. For each increment:
+
+1. Add its weight to `accumulated_weight`.
+2. If `accumulated_weight >= 4`, mark this increment as a checkpoint
+   and reset `accumulated_weight = 0`.
+
+After the walk, if the **final increment** is not already a checkpoint
+**and** `accumulated_weight > 0` (i.e. there is uncovered work at the
+tail), promote the final increment to a checkpoint so nothing ships
+unaudited.
+
+Edge case — manual / user-driven increments
+(`Status: blocked-on-user`): skip them when accumulating weight, and
+do not mark them as checkpoints. The next executable increment can
+own a checkpoint instead.
+
+**Worked examples:**
+
+- 10 × S → checkpoints after Inc 4, Inc 8, Inc 10 → **3 audits**.
+- 5 × M → checkpoints after Inc 2, Inc 4, Inc 5 → **3 audits**.
+- 1 × L → checkpoint after Inc 1 → **1 audit**.
+- S, S, M, S, L, M, M → after Inc 4 (S+S+M+S=5), after Inc 5 (L=4),
+  after Inc 7 (M+M=4) → **3 audits**.
+
+**Annotation format** — for each chosen checkpoint increment, insert a
+single line directly under its `**Done criteria:**` line (or under the
+increment heading if no done-criteria line exists):
+
+```
+**Audit checkpoint:** yes
+```
+
+Do not modify any other part of the plan. After annotation, summarize
+to the user (in both modes): "Annotated N audit checkpoints across M
+increments — audits will run after: Inc X, Inc Y, Inc Z."
+
+If the plan already contains `**Audit checkpoint:** yes` lines (e.g.
+the user added them by hand, or this is a resumed run), **trust them
+and skip the heuristic** — the user's choices win. Just summarize the
+inherited cadence.
 
 ### Step 2 — Execution loop
 
@@ -54,16 +124,25 @@ For each increment in dependency order:
 1. **Implement** — follow `implement-plan` Step 3 (read files, write
    code, run the check command until clean, self-review against common
    mistakes).
-2. **Audit (5 specialists, parallel)** — see Step 3 below.
-3. **Reconcile** — see Step 4.
-4. **Mark done** — update the increment's `**Status**:` to `done` in the
-   plan file. Append at most a one-line audit note (e.g. `audit:
-   3 small fixes applied, 0 plan-overrides`). Do **not** rewrite the
-   plan to leak audit context into future increments — keep the plan
-   stable so later increments are not biased by earlier audits.
-5. **Mode gate**:
-   - `manual` — pause and report the increment outcome to the user
-     before starting the next increment.
+2. **Mark done** — update the increment's `**Status**:` to `done` in the
+   plan file. Do **not** rewrite the plan to leak prior audit context
+   into future increments — keep the plan stable so later increments
+   are not biased.
+3. **Checkpoint gate** — if this increment is annotated
+   `**Audit checkpoint:** yes`:
+   - **Audit (5 specialists, parallel)** on the cumulative diff since
+     the previous checkpoint (or the pre-execution ref captured in
+     Step 1, for the first checkpoint) — see Step 3 below.
+   - **Reconcile** — see Step 4.
+   - Append at most a one-line audit note under the checkpoint
+     increment (e.g. `audit: 3 small fixes applied, 0 plan-overrides,
+     covered Inc 5–7`).
+   - Update the "previous checkpoint ref" to the current `git
+     rev-parse HEAD`.
+4. **Mode gate**:
+   - `manual` — pause and report the increment outcome (and audit
+     outcome, if a checkpoint just ran) before starting the next
+     increment.
    - `auto` — proceed to the next increment immediately. No prompts.
 
 Manual/user-driven increments (e.g. "hand-write context and verify in
@@ -71,10 +150,17 @@ prod") are marked `blocked-on-user` and skipped, regardless of mode.
 
 ### Step 3 — Launch the audit specialists
 
-After the increment's check command passes, capture the increment's
-diff (`git diff` against the pre-increment ref or the staged changes)
-and launch **all five code-audit specialists in parallel** in a single
-message with multiple Agent tool calls.
+At a checkpoint, capture the **cumulative diff** since the previous
+checkpoint ref (or the pre-execution ref for the first checkpoint):
+`git diff <prev_checkpoint_ref>..HEAD`. Launch **all five code-audit
+specialists in parallel** in a single message with multiple Agent
+tool calls.
+
+Tell each specialist (in their prompt) which increments are covered
+by this audit window (e.g. "this diff covers Inc 5, Inc 6, Inc 7")
+**without** revealing the increment titles, the plan, or the goal.
+This lets specialists scope their reasoning to the diff size without
+biasing them toward the plan's framing.
 
 Each specialist receives the standard prompt from
 `code-audit/SKILL.md` (specialist brief, anti-bias contract, files
@@ -107,34 +193,50 @@ When all specialists return:
    - `manual` — present the merged FIX list to the user. Apply only
      what the user approves. Then run the check command.
 3. **Plan-override flagging**: if the merged output reveals that the
-   increment's approach was structurally wrong (a specialist's `Why:`
-   describes a fundamentally cleaner architecture, or a fix touches
-   the public API the plan specified), surface this as a
-   "plan-override" item to the user even in auto mode. Auto mode
-   still applies the fix; the user gets a notification at the next
-   completion summary so they can decide whether to update later
-   increments.
+   approach taken in any covered increment was structurally wrong (a
+   specialist's `Why:` describes a fundamentally cleaner
+   architecture, or a fix touches the public API the plan specified),
+   surface this as a "plan-override" item to the user even in auto
+   mode. Auto mode still applies the fix; the user gets a
+   notification at the next completion summary so they can decide
+   whether to update later increments.
 4. **Behavior preservation**: any FIX that changes external behavior
    must be surfaced even if applied. Auto mode does not get to
    silently change behavior.
 
+Because a checkpoint covers multiple increments, the merged FIX list
+will often be larger than a per-increment audit. Group findings by
+file in the user-facing report so reviewers can scan quickly.
+
 ### Step 5 — Commit hygiene (optional)
 
-If the user wants commits per increment, commit after reconcile.
-Message style: single-line, imperative. Use `feat({slug}): …` or
-`refactor({slug}): audit cleanup for …` if the audit changed
-material things. No Co-Authored-By unless explicitly requested.
+If the user wants commits per increment, commit after each increment
+implements (before the checkpoint gate). At the checkpoint, after
+reconcile, make a separate `audit:` commit for any fixes the
+specialists applied — this keeps audit cleanup separable from
+feature work in `git log`.
 
-In auto mode, commits per increment are recommended — they make it
-easy to bisect after a long run.
+Message style: single-line, imperative. Use `feat({slug}): …` for
+increments and `audit({slug}): cleanup for Inc X–Y` for checkpoint
+fixes. No Co-Authored-By unless explicitly requested.
+
+In auto mode, commits per increment plus a separate audit commit
+per checkpoint are recommended — they make it easy to bisect after
+a long run and to revert audit changes independently if needed.
 
 ### Step 6 — Completion
 
 When all increments are `done` (or `blocked-on-user`):
 
-1. Run a final check command.
-2. Summarize to the user:
+1. If the final increment was not a checkpoint and there is uncovered
+   work since the last checkpoint, run one final checkpoint audit
+   now (this should be rare — Step 1.5 promotes the final increment
+   to a checkpoint by default).
+2. Run a final check command.
+3. Summarize to the user:
    - Increments completed and blocked.
+   - Number of audit checkpoints run, and which increments each
+     checkpoint covered.
    - Total fixes applied across all audits, broken down by specialist.
    - Plan-override flags raised.
    - Any unresolved NOTEs.
@@ -161,13 +263,19 @@ revert.
 
 ## Rules
 
-- The audit always runs five (or four in light) parallel specialists.
-  Single-pass audits are gone.
+- Audits run **only at annotated checkpoints**, not after every
+  increment. Step 1.5 computes the cadence; the loop honors it.
+- The audit always runs five (or four in light) parallel specialists
+  when it runs. Single-pass audits are gone.
 - Specialist prompts are self-contained and blind: no plan path, no
-  goal, no chat history.
-- The plan file is updated only with the `done` status and at most a
-  one-line audit note per increment. Audit outputs do **not** leak
-  into the plan.
+  goal, no chat history. They may be told which increment indices
+  the diff covers, but never their titles or descriptions.
+- The plan file is updated with `**Audit checkpoint:** yes` lines
+  during Step 1.5, then with `done` status and at most a one-line
+  audit note under each checkpoint increment. Audit outputs do
+  **not** leak into the plan otherwise.
+- User-authored `**Audit checkpoint:** yes` lines are respected
+  verbatim — the heuristic only fires when the plan has none.
 - Auto mode never silently changes external behavior — those FIXes
   are always surfaced.
 - Auto mode has a hard floor of 3 retries before falling back to
