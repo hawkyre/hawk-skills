@@ -36,3 +36,4 @@ This is the entry point for all work. It identifies the task type and routes to 
 - If the task type is ambiguous, ask the user to clarify
 - `review-plan` (Workflow 8) and `implement-plan` (Workflow 9) are invoked directly when needed — they are not routed from here
 - If a plan file exists in `.plans/`, reference it and resume from where the last session left off
+- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-<skill>-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-<skill>-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline.

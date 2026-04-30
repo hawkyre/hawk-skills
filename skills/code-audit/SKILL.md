@@ -49,6 +49,8 @@ average of its surroundings, not to match the average.
    by layer (frontend, backend, shared). Note immediate imports/exports —
    neighbor files in scope for cross-cutting checks.
 
+   Diff capture: `git diff <range> > /tmp/hawk-code-audit-diff.patch 2>&1`. Get the file list with `git diff --name-only <range>` (small, inline). Specialist prompts receive per-file `rg -n` slices of the capture, never the raw concatenated diff.
+
 2. **Load shared context** (the orchestrator only — subagents get this
    pasted inline):
    - `.agents/standards/` (read `index.yml`, then the relevant files).
@@ -87,8 +89,7 @@ average of its surroundings, not to match the average.
 
 6. **Act on the merged output**:
    - **Report mode**: emit the report (template below) and stop.
-   - **Cleanup mode**: apply every FIX. Run the check command. If it
-     fails, fix the breakage (max 3 attempts) before reporting back.
+   - **Cleanup mode**: apply every FIX. Run the check command, capturing output: `<check-cmd> > /tmp/hawk-code-audit-check.log 2>&1`, then `rg -n 'error|warning|fail|FAIL' /tmp/hawk-code-audit-check.log | head -50`. If it fails, fix the breakage (max 3 attempts) before reporting back.
 
 ## The five specialists
 
@@ -205,3 +206,4 @@ check command before reporting.
 - An unverifiable recommendation is a NOTE, never a FIX.
 - Cleanup mode is not allowed to skip the check command — a green build
   is the contract.
+- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-code-audit-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-code-audit-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline. Specialist prompts include this bullet verbatim and receive narrowed slices, never raw captures.

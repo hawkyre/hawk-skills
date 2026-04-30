@@ -50,3 +50,4 @@ description: Explore and explain how a system, module, or codebase works. Use wh
 - When the user states their understanding, correct misconceptions specifically
 - Use diagrams to compress understanding
 - Write down what you learned — it compounds across sessions
+- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-learn-system-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-learn-system-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline. Explore subagents must apply the same recipe to their captures.

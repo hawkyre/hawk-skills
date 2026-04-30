@@ -33,3 +33,4 @@ description: Remove a feature, delete dead code, drop a dependency, or simplify 
 - Always verify with a full check run after deletion
 - Do deletion in its own PR, separate from any new feature work
 - Check `.agents/common-mistakes/` for any removal-specific patterns before executing
+- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-remove-code-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-remove-code-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline.

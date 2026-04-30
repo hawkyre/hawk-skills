@@ -81,8 +81,15 @@ context focused on the fix.
   unrelated improvements.
 - Verify the test passes.
 - **Check for the same bug pattern elsewhere** — bugs travel in
-  packs. Grep for the fingerprint of the bug across the repo.
-- Run the project's check command.
+  packs. Grep for the fingerprint across the repo into a capture:
+  `rg -n '<fingerprint>' . > /tmp/hawk-fix-bug-pattern.log 2>&1`,
+  then narrow with a second `rg` over the file.
+- Run the project's check command, capturing output:
+  `<check-cmd> > /tmp/hawk-fix-bug-check.log 2>&1`, then
+  `rg -n 'error|warning|fail|FAIL' /tmp/hawk-fix-bug-check.log | head -50`.
+- For long `WebFetch` payloads in Step 3, capture via
+  `curl -sSL <url> -o /tmp/hawk-fix-bug-fetch-<n>.html` and `rg`
+  for the symptom keywords before reading.
 
 ### Step 6 — Update common-mistakes if applicable
 
@@ -108,3 +115,4 @@ brief in the common-mistake entry. Future you will not remember.
   Surface the design concern even if you ship the one-liner.
 - After fixing, check `.agents/common-mistakes/` — if this bug
   pattern is new, add it (with research links if used).
+- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-fix-bug-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-fix-bug-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline.

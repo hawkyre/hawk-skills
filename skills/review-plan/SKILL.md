@@ -39,3 +39,4 @@ description: Stress-test a plan file before committing to implementation. Catche
 - The best time to catch a missing dependency is before any code exists
 - Convention compliance in the plan prevents convention violations in the code
 - An adversarial reviewer should argue _against_ the plan — not just validate it
+- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-<skill>-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-<skill>-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline.

@@ -45,6 +45,8 @@ Generate the top 3–6 questions whose answers will shape the plan. For
      dictate.
    - Config files, schemas, types, or migrations that fix the answer.
    - Existing patterns in neighboring features.
+
+   For repo-wide searches that may return many hits, capture and narrow: `rg -n '<symbol>' . > /tmp/hawk-plan-small-search-<step>.log 2>&1`, then a second `rg` over the file or `Read` with `offset`/`limit`.
 2. If the answer is in the code, **do not ask the user**. Record it in
    the plan as `Answered from code: <answer> — see <file:line>`.
 3. If the answer is not in the code, hold the question for the user.
@@ -231,3 +233,4 @@ does.
 - Apply MUST-FIX and SHOULD-FIX before showing the user. The user sees
   the improved plan, not the first draft.
 - If the plan reveals scope >1 PR, stop and suggest `/plan-large`.
+- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-plan-small-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-plan-small-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline. The self-review subagent prompt includes this bullet verbatim; long standards files are narrowed via `rg` before being pasted into the prompt.

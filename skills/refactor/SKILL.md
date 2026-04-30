@@ -43,3 +43,4 @@ description: Refactor existing code without changing behavior. Use when the user
 - A refactor diff should be "boring" — moves, renames, restructures. No logic changes.
 - If you discover a bug during refactoring, note it for a separate fix PR. Never mix refactoring and bug fixes.
 - Check `.agents/common-mistakes/` for relevant patterns before and after
+- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-<skill>-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-<skill>-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline.

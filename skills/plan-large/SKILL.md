@@ -39,7 +39,7 @@ Ask the user (or extract from the description) for:
 For initial codebase investigation, dispatch up to 3 `Explore`
 subagents in parallel (one for existing patterns, one for related
 components, one for testing patterns) to keep planning context
-clean.
+clean. Each Explore brief includes the canonical Big-output discipline Rules bullet verbatim, and instructs the subagent to capture repo-wide searches to `/tmp/hawk-plan-large-explore-<n>.log` and return narrowed findings, not raw captures.
 
 ### Step 2 — Load context
 
@@ -292,3 +292,4 @@ when the user is ready.
   edit pass.
 - Resist building everything at once. Increments are reviewable
   units; if an increment grows past one PR, split it.
+- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-plan-large-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-plan-large-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline. Explore subagent briefs and the self-review subagent prompt include this bullet verbatim, and long standards files are narrowed via `rg` before being pasted in.

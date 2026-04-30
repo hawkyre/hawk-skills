@@ -56,6 +56,8 @@ orchestrator will need it for verification gates. Also capture the
 current git ref (`git rev-parse HEAD`) — the first checkpoint's audit
 diff is computed against it.
 
+All check-command runs in this skill follow the **Big-output discipline**: redirect to `/tmp/hawk-implement-plan-audited-<step>.log` and inspect with `rg -n 'error|warning|fail|FAIL' /tmp/hawk-implement-plan-audited-<step>.log | head -50`. `<step>` is e.g. `inc3-check`, `ckpt2-check`, `final-check`.
+
 ### Step 1.5 — Annotate audit checkpoints into the plan
 
 Before any code is written, walk the plan's increments in order and
@@ -151,10 +153,20 @@ prod") are marked `blocked-on-user` and skipped, regardless of mode.
 ### Step 3 — Launch the audit specialists
 
 At a checkpoint, capture the **cumulative diff** since the previous
-checkpoint ref (or the pre-execution ref for the first checkpoint):
-`git diff <prev_checkpoint_ref>..HEAD`. Launch **all five code-audit
-specialists in parallel** in a single message with multiple Agent
-tool calls.
+checkpoint ref (or the pre-execution ref for the first checkpoint).
+**Per-file enumeration first, then per-file capture** — never the
+raw concatenated cumulative diff:
+
+```bash
+git diff --name-only <prev_checkpoint_ref>..HEAD > /tmp/hawk-implement-plan-audited-files-<ckpt>.log
+# for each file in that list:
+git diff <prev_checkpoint_ref>..HEAD -- <path> > /tmp/hawk-implement-plan-audited-diff-<ckpt>-<file-slug>.patch 2>&1
+```
+
+Specialist prompts receive narrowed `rg -n` slices from the per-file
+captures, never the full cumulative diff. Launch **all five
+code-audit specialists in parallel** in a single message with
+multiple Agent tool calls.
 
 Tell each specialist (in their prompt) which increments are covered
 by this audit window (e.g. "this diff covers Inc 5, Inc 6, Inc 7")
@@ -177,6 +189,8 @@ must appear in every specialist prompt for this skill:
 ```
 
 Light mode skips specialist #4 (online research).
+
+Every specialist prompt **also** includes the canonical Big-output discipline Rules bullet (see Rules below) verbatim, so each blind specialist applies the same /tmp+rg recipe when they need to capture output during their review.
 
 ### Step 4 — Reconcile
 
@@ -283,3 +297,4 @@ revert.
 - Honor user-level conventions: one-line commits, no
   Co-Authored-By, no `--no-verify`, no silent lint dismissal. These
   apply to both modes.
+- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-implement-plan-audited-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-implement-plan-audited-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline. In auto mode, never paste a raw /tmp capture into the conversation — only narrowed slices.

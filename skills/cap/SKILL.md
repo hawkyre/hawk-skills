@@ -11,8 +11,10 @@ Commit and push the current working tree in one shot.
 
 1. **Read the state** — run in parallel:
    - `git status` to see what's changed and untracked
-   - `git diff` (and `git diff --staged`) to see the full diff
+   - `git diff --stat` and `git diff --staged --stat` for the size pre-check (always inline)
    - `git log -10 --oneline` to learn the repo's commit message style
+
+   If the stat shows the diff is small (≲200 lines), read it inline with `git diff` / `git diff --staged`. If it's large, redirect: `git diff > /tmp/hawk-cap-diff.patch 2>&1` and `git diff --staged > /tmp/hawk-cap-diff-staged.patch 2>&1`. Build the commit-message draft from `rg -n '^(diff --git|@@|^\+|^-)' /tmp/hawk-cap-diff.patch | head -50` slices, not the whole capture.
 
 2. **Match the repo's voice**:
    - Mirror tense, casing, length, and prefix conventions from recent commits
@@ -50,3 +52,4 @@ Commit and push the current working tree in one shot.
 - Never skip hooks (`--no-verify`, `--no-gpg-sign`)
 - Never amend a commit that's already been pushed
 - If the user is mid-rebase, mid-merge, or has conflicts, stop and surface the state instead of committing through it
+- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-cap-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-cap-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline.

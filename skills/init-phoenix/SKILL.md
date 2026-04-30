@@ -64,9 +64,9 @@ Bootstrap a fully working Docker-based Phoenix dev environment from a bare AI-sc
    - `{:typed_ecto_schema, "~> 0.4"}` (ALWAYS included — all schemas use `typed_schema`)
    - Any user-requested deps (libcluster, oban, etc.)
 
-2. Run `mix deps.get` to generate `mix.lock`.
+2. Run `mix deps.get > /tmp/hawk-init-phoenix-deps.log 2>&1` and `rg -n 'error|fail' /tmp/hawk-init-phoenix-deps.log | head -50` to confirm clean.
 
-3. Run `mix compile` to verify everything resolves.
+3. Run `mix compile > /tmp/hawk-init-phoenix-compile.log 2>&1` and `rg -n 'warning|error' /tmp/hawk-init-phoenix-compile.log | head -50` (compile warnings can be voluminous).
 
 ### Phase 4: Create Docker Environment
 
@@ -132,25 +132,29 @@ Also update `CLAUDE.md` to match the same content.
 
 ### Phase 10: Verify and Init Git
 
+Each verification step writes its output to `/tmp/hawk-init-phoenix-<step>.log` (with `2>&1`). Inspect with `rg -n 'error|warning|fail|FAIL' /tmp/hawk-init-phoenix-<step>.log | head -50` rather than streaming the raw output.
+
 Run these verification steps in order:
 
-1. `make up` — all containers start, healthchecks pass
-2. `make setup` — DB created, migrations run, assets built
-3. `curl -s -o /dev/null -w "%{http_code}" http://localhost:<phoenix_port>` — expect `200`
+1. `make up > /tmp/hawk-init-phoenix-up.log 2>&1` — all containers start, healthchecks pass
+2. `make setup > /tmp/hawk-init-phoenix-setup.log 2>&1` — DB created, migrations run, assets built
+3. `curl -s -o /dev/null -w "%{http_code}" http://localhost:<phoenix_port>` — expect `200` (output is tiny, inline)
 4. Verify BEAM console connectivity:
    ```bash
    docker compose exec -e ERL_FLAGS="" app \
      erl -noshell -sname probe -setcookie <app_name>_dev_cookie \
      -eval "case net_adm:ping('<app_name>@<app_name>') of pong -> io:format(\"connected~n\"), halt(0); pang -> io:format(\"failed~n\"), halt(1) end"
    ```
-5. `git init && git add -A && git commit -m "feat: initialize <app_name> Phoenix project"`
+5. `make check > /tmp/hawk-init-phoenix-check.log 2>&1` (format/compile/credo/test/dialyzer — dialyzer output is voluminous, redirect is mandatory).
+6. `git init && git add -A && git commit -m "feat: initialize <app_name> Phoenix project"`
 
-If any step fails, diagnose and fix before proceeding to the next.
+If any step fails, `rg` the relevant /tmp log for the actual error and fix before proceeding.
 
 ---
 
 ## Rules
 
+- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-init-phoenix-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-init-phoenix-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline. `mix compile`, `mix test`, `mix dialyzer`, `make check`, `make setup`, `make up`, and `docker compose logs` all redirect.
 - **ALWAYS** verify the Docker base image tag exists before writing the Dockerfile — Alpine patch versions are unpredictable and change without notice
 - **ALWAYS** set a static `hostname` on the app container in docker-compose.yml — BEAM node names depend on it and container IDs are dynamic
 - **ALWAYS** use `-e ERL_FLAGS=""` for `docker compose exec` commands that run mix tasks or iex — the container's `ERL_FLAGS` (which set `--sname` for the running app) conflict with new BEAM instances spawned by exec

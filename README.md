@@ -161,6 +161,53 @@ The `index.yml` files are plain YAML with topic → file mappings. Bootstrap the
 
 The project check command (`bun run c`, `pnpm typecheck`, `mix test`, etc.) is looked up — never assumed.
 
+### Big-output discipline
+
+Heavy command output blows the agent's context window and stays
+expensive for every subsequent turn. Every skill in this repo follows
+the same recipe:
+
+1. **Redirect** any command whose output may exceed ~200 lines —
+   project check command, full `git diff`, repo-wide search, long log,
+   `WebFetch` of a long page — to a predictable file:
+
+   ```bash
+   <command> > /tmp/hawk-<skill>-<step>.log 2>&1
+   ```
+
+   Use `${TMPDIR:-/tmp}` if `/tmp` is unavailable. Pick a stable
+   `<step>` (e.g. `check`, `diff`, `inc3`, `chunk2`) so the same path
+   is reused by the inspection call. **Do not** use `$$` — Claude
+   Code starts a new shell per Bash call, so `$$` differs between
+   calls.
+
+2. **Inspect** with `rg -n` (or `grep -nE` if `rg` is missing), capped:
+
+   ```bash
+   rg -n '<pattern>' /tmp/hawk-<skill>-<step>.log | head -50
+   ```
+
+3. **Read** the capture file with `offset`/`limit` only after `rg`
+   has identified line ranges, or to bound the slice (≤200 lines).
+   Never `Read` an unbounded /tmp capture.
+
+**In scope** (always redirect): typecheckers, test runners, linters,
+dialyzer, full `git diff`, `git diff <range>` with code, repo-wide
+`rg`/`grep`, `docker compose logs`, `WebFetch` payloads >~10KB
+(capture via `curl -sSL <url> -o /tmp/hawk-<skill>-fetch.html`).
+
+**Out of scope** (inline is fine): `git status`, `git log --oneline`,
+`git diff --name-only`, `git diff --stat`, `git rev-parse HEAD`,
+focused `Read` of a known file, narrow `rg` over a small subdir.
+
+**Subagents inherit the rule.** When a skill fans out to subagents,
+the orchestrator pastes narrowed slices (not raw captures) into the
+subagent prompt, and the prompt template includes this same Rules
+bullet so the subagent applies the recipe to its own commands.
+
+Files are prefixed `hawk-<skill>-` so a session can prune with
+`rm -f /tmp/hawk-*` when finished.
+
 ## Layout
 
 ```

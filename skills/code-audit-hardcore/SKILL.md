@@ -82,10 +82,12 @@ proper error paths, modern API usage.
 ## Process
 
 1. **Identify the core scope** from the args (or the working diff if
-   unspecified).
+   unspecified). Diff capture: `git diff <range> > /tmp/hawk-code-audit-hardcore-diff.patch 2>&1`.
 2. **Compute the review scope** by expanding the core scope per the
    tangibly-relevant rule above. Print the expansion so the user can
-   see what's about to be touched.
+   see what's about to be touched. Per-file slices are extracted from
+   the capture via `rg -n` for specialist prompts; never paste the raw
+   concatenated diff.
 3. **Load shared context**: `.agents/standards/`,
    `.agents/common-mistakes/`, the project check command.
 4. **Spawn the five specialists in parallel** — one message,
@@ -116,8 +118,7 @@ proper error paths, modern API usage.
    When in doubt, classify big. Plans are cheap; bad refactors are
    not.
 8. **Apply small fixes inline** (cleanup mode). Run the check
-   command after each batch. If it fails, fix or revert before
-   moving on (max 3 attempts).
+   command after each batch, capturing output: `<check-cmd> > /tmp/hawk-code-audit-hardcore-check-<batch>.log 2>&1`, then `rg -n 'error|warning|fail|FAIL' /tmp/hawk-code-audit-hardcore-check-<batch>.log | head -50`. If it fails, fix or revert before moving on (max 3 attempts).
 9. **Route big fixes through plan skills**. Cluster related big
    fixes by module/theme. For each cluster, invoke `/plan-small` if
    it's a single-PR refactor, `/plan-large` if it spans modules or
@@ -125,7 +126,7 @@ proper error paths, modern API usage.
    self-review. Hardcore stops at "plan written" and surfaces the
    plan paths.
 10. **Final pass**: run the check command across the affected
-    files. Report (template below).
+    files (`<check-cmd> > /tmp/hawk-code-audit-hardcore-check-final.log 2>&1`, then `rg -n 'error|warning|fail|FAIL' /tmp/hawk-code-audit-hardcore-check-final.log | head -50`). Report (template below).
 
 ## Hardcore prompt addendum
 
@@ -210,3 +211,4 @@ brief, scope, standards, output format) applies unchanged.
 - The check command must pass after every batch of small fixes.
 - Public API changes are always big fixes — route through a plan,
   even if the patch itself is small.
+- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-code-audit-hardcore-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-code-audit-hardcore-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline. Specialist prompts include this bullet verbatim and receive narrowed slices, never raw captures.
