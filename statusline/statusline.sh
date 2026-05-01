@@ -27,6 +27,14 @@ pct=$($JQ -r '.context_window.used_percentage // empty' <<<"$input")
 ctx_size=$($JQ -r '.context_window.context_window_size // empty' <<<"$input")
 vim_mode=$($JQ -r '.vim.mode // empty' <<<"$input")
 
+# If the candidate is inside a git repo, prefer the repo's toplevel.
+# Otherwise `basename` returns the leaf folder ("app") instead of the
+# real project name ("arete") when Claude Code is opened in a subdir.
+if [ -n "$project_root" ]; then
+  top=$(git --no-optional-locks -C "$project_root" -c gc.auto=0 rev-parse --show-toplevel 2>/dev/null)
+  [ -n "$top" ] && project_root="$top"
+fi
+
 project=$(basename "$project_root")
 
 branch=""
@@ -35,9 +43,9 @@ if git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
 fi
 
 subpath=""
-if [ -n "$cwd" ] && [ -n "$dir" ] && [ "$cwd" != "$dir" ]; then
+if [ -n "$cwd" ] && [ -n "$project_root" ] && [ "$cwd" != "$project_root" ]; then
   case "$cwd" in
-    "$dir"/*) subpath=$(basename "$cwd") ;;
+    "$project_root"/*) subpath=$(basename "$cwd") ;;
   esac
 fi
 
