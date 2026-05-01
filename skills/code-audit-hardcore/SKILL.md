@@ -79,8 +79,11 @@ proper error paths, modern API usage.
 
 ## Specialist user prompt — Posture: hardcore
 
-When fanning out to the `audit-*` specialists, append this block to
-the standard `code-audit` user prompt:
+When fanning out, call the `audit-*` subagents directly — the same
+concrete `Agent(subagent_type="audit-logic", …)` etc. listed in
+`code-audit/SKILL.md`. **Do NOT call `Agent(subagent_type="code-audit", …)`** —
+`code-audit` is a skill, not a subagent. Append this block to the
+standard `code-audit` user prompt:
 
 ```
 ## Posture: hardcore — always improve

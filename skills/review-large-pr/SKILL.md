@@ -54,8 +54,13 @@ skill orchestrates.
       Agent(subagent_type="audit-architecture",  prompt=<chunk user prompt>)
       ```
 
-      Skip any role not in the triage subset. The chunk user prompt
-      contains:
+      Skip any role not in the triage subset.
+
+      **Do NOT call `Agent(subagent_type="code-audit", …)`** — that's
+      a skill, not a subagent. The audit-* names above are the only
+      callable specialists.
+
+      The chunk user prompt contains:
       - Per-file `rg -n` slices from the chunk's capture files (not
         the raw concatenated diff)
       - Relevant `.agents/standards/` content pasted inline

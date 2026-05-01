@@ -210,7 +210,13 @@ Agent(subagent_type="audit-research",      prompt=<USER PROMPT>)
 Agent(subagent_type="audit-architecture",  prompt=<USER PROMPT>)
 ```
 
-Skip any role not in the triage subset. The agent body owns the role,
+Skip any role not in the triage subset.
+
+**Do NOT call `Agent(subagent_type="code-audit", …)`.** `code-audit`
+is a *skill*, not a subagent — it has no entry in `~/.claude/agents/`
+and the Agent tool will reject it. The audit-* subagents are the
+only callable specialists; this skill is calling them directly here
+in place of invoking `/code-audit`. The agent body owns the role,
 anti-bias contract, verification rule, and output schema. The
 orchestrator's per-call user prompt contains only:
 

@@ -127,10 +127,17 @@ better than the average of its surroundings, not to match the average.
    Agent(subagent_type="audit-architecture",  prompt=<USER PROMPT>)
    ```
 
-   Skip any role not in the triage subset. The user prompt template is
-   the small block below — the role, brief, anti-bias contract,
-   verification rule, output format, and big-output recipe are already
-   in the agent's system prompt and must NOT be repeated.
+   Skip any role not in the triage subset.
+
+   **Do NOT call `Agent(subagent_type="code-audit", …)`.** This skill
+   IS the orchestrator — it calls the audit-* subagents directly,
+   never itself. `code-audit` is a skill, not a subagent; the Agent
+   tool will reject that name.
+
+   The user prompt template is the small block below — the role,
+   brief, anti-bias contract, verification rule, output format, and
+   big-output recipe are already in the agent's system prompt and
+   must NOT be repeated.
 
 5. **Merge the outputs**:
    - Concatenate every specialist's FIX list.
