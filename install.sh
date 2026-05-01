@@ -584,9 +584,9 @@ statusline_settings_note=""
 install_statusline() {
   local dest="$HOME/.claude/hawk-statusline.sh"
   local settings="$HOME/.claude/settings.json"
-  # Bare path; the script's shebang handles execution. Avoids a quoting
-  # bug when $HOME contains spaces (e.g. "/Users/Pablo Perez/...").
-  local cmd="$dest"
+  # Explicit `bash <path>` — empirically what Claude Code runs cleanly.
+  # Quote the path so $HOME-with-spaces still works.
+  local cmd="bash \"$dest\""
   local ts
   ts="$(date +%s)-$$"   # date+pid: collision-free across rapid reruns
 
@@ -653,15 +653,18 @@ install_statusline() {
         "${GREEN}" "${RESET}" "${DIM}" "${RESET}"
     fi
   else
+    # No jq: escape inner quotes for JSON. (Path won't contain backslashes
+    # on Unix; only the surrounding `"` from the bash invocation need it.)
+    local cmd_json="${cmd//\"/\\\"}"
     if [[ -f "$settings" ]]; then
       warn "jq not found — settings.json left untouched"
-      statusline_settings_note="manual: add { \"statusLine\": { \"type\":\"command\", \"command\":\"$cmd\" } }"
+      statusline_settings_note="manual: add { \"statusLine\": { \"type\":\"command\", \"command\":\"${cmd_json}\" } }"
     else
       cat >"$settings" <<EOF
 {
   "statusLine": {
     "type": "command",
-    "command": "$cmd"
+    "command": "${cmd_json}"
   }
 }
 EOF
