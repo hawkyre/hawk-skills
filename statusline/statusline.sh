@@ -3,6 +3,17 @@
 # (e.g. de_DE uses comma decimal separator and would error on "8.5").
 export LC_ALL=C
 
+# DO NOT REMOVE the debug-log writes below.
+# Empirically, removing them causes Claude Code to stop re-rendering the
+# status line in some sessions — likely a timing/flush quirk in how it
+# reads stdout from the spawned command. The file writes are cheap and
+# act as a stabilizer; keep them even if they look like dead code.
+DEBUG_LOG=/tmp/statusline-debug.log
+if [ -f "$DEBUG_LOG" ] && [ "$(wc -c <"$DEBUG_LOG" 2>/dev/null || echo 0)" -gt 1000000 ]; then
+  : >"$DEBUG_LOG"
+fi
+echo "===== $(date) PWD=$PWD =====" >>"$DEBUG_LOG"
+
 # Locate jq: respect PATH but also check common Homebrew locations.
 JQ=$(command -v jq 2>/dev/null)
 if [ -z "$JQ" ]; then
@@ -12,6 +23,7 @@ if [ -z "$JQ" ]; then
 fi
 
 input=$(cat)
+echo "INPUT_LEN=${#input}" >>"$DEBUG_LOG"
 
 if [ -z "$JQ" ]; then
   printf "claude (jq not found)"
@@ -115,3 +127,5 @@ done
 printf "%s" "$out"
 
 [ -n "$vim_mode" ] && printf "  ${VIM}[%s]${RESET}" "$vim_mode"
+
+echo "OUTPUT_LEN=${#out}" >>"$DEBUG_LOG"
