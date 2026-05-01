@@ -10,6 +10,8 @@
 #   curl -fsSL .../install.sh | bash -s -- --dry-run
 #   curl -fsSL .../install.sh | bash -s -- --only code-audit
 #   curl -fsSL .../install.sh | bash -s -- --prefix hawk-   # namespace all skills
+#   curl -fsSL .../install.sh | bash -s -- --statusline     # also install statusline
+#   curl -fsSL .../install.sh | bash -s -- --no-statusline  # skip statusline prompt
 #
 # From a cloned checkout:
 #   ./install.sh
@@ -119,6 +121,8 @@ trap cleanup EXIT INT TERM
 dry_run=0
 only_list=()
 prefix=""
+prefix_set=0           # 1 = user supplied --prefix (skip interactive prompt)
+statusline_choice=""   # "" = ask interactively, "yes" / "no" otherwise
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -128,6 +132,24 @@ while [[ $# -gt 0 ]]; do
       only_list+=("$2")
       shift 2
       ;;
+    --statusline)    statusline_choice="yes"; shift ;;
+    --no-statusline) statusline_choice="no";  shift ;;
+    --prefix)
+      if [[ $# -lt 2 ]]; then fail "--prefix requires a value (use --prefix '' for none)"; exit 2; fi
+      case "$2" in
+        --*) fail "--prefix value cannot start with -- (got '$2'; use --prefix '' for none)"; exit 2 ;;
+      esac
+      # Block characters that would break sed regex/replacement, filenames,
+      # or shell quoting. Allows letters, digits, _, -, :, . — covers the
+      # common namespace styles (`hawk-`, `h:`, `my.org.`).
+      if [[ -n "$2" && ! "$2" =~ ^[a-zA-Z0-9_:.\-]+$ ]]; then
+        fail "--prefix may only contain letters, digits, '_', '-', ':', '.' (got '$2')"
+        exit 2
+      fi
+      prefix="$2"
+      prefix_set=1
+      shift 2
+      ;;
     -h|--help)
       banner
       cat <<EOF
@@ -135,6 +157,10 @@ ${BOLD}Usage${RESET}
   ./install.sh                       interactive: pick a prefix, then choose skills
   ./install.sh --dry-run             show plan, do not install
   ./install.sh --only <name>         install one skill, no prompts (repeatable)
+  ./install.sh --prefix <p>          namespace skills + agents (e.g. hawk-, h:)
+                                     allowed: letters/digits/_/-/:/. or '' for none
+  ./install.sh --statusline          also install the hawk statusline
+  ./install.sh --no-statusline       skip the statusline prompt
 
 ${BOLD}Remote (no clone required)${RESET}
   curl -fsSL https://raw.githubusercontent.com/${REPO}/${BRANCH}/install.sh | bash
@@ -162,6 +188,7 @@ banner
 
 if [[ -n "$SCRIPT_DIR" && -d "$SCRIPT_DIR/skills" ]]; then
   SOURCE_DIR="$SCRIPT_DIR/skills"
+  REPO_ROOT="$SCRIPT_DIR"
   sub "source: local checkout"
 else
   if ! command -v curl >/dev/null 2>&1; then fail "curl is required";  exit 1; fi
@@ -181,7 +208,11 @@ else
     fail "could not locate skills/ in downloaded tarball"; exit 1
   fi
   SOURCE_DIR="$extracted/skills"
+  REPO_ROOT="$extracted"
 fi
+
+STATUSLINE_SRC="$REPO_ROOT/statusline/statusline.sh"
+AGENTS_SRC="$REPO_ROOT/agents"
 
 # ─── verify target ─────────────────────────────────────────────────────────────
 
@@ -202,6 +233,8 @@ descriptions=()
 max_name_len=0
 
 # read_description <skill_dir> → echoes the description: line from SKILL.md
+# Trailing whitespace and CR are trimmed so editors that introduce them
+# don't break the description-match safety net used by uninstall.
 read_description() {
   local md="$1/SKILL.md"
   [[ -f "$md" ]] || { printf ''; return; }
@@ -209,6 +242,7 @@ read_description() {
     /^---[[:space:]]*$/ { fence++; if (fence == 2) exit; next }
     fence == 1 && /^description:/ {
       sub(/^description:[[:space:]]*/, "")
+      sub(/[[:space:]\r]+$/, "")
       print
       exit
     }
@@ -217,6 +251,11 @@ read_description() {
 
 for src in "$SOURCE_DIR"/*/; do
   name="$(basename "$src")"
+  # Skip non-skill directories (shared fragments, support files).
+  # Convention: prefix with `_` to opt out of the picker. They still
+  # ship with the install (copied below) so skills can reference them.
+  [[ "$name" == _* ]] && continue
+  [[ -f "$src/SKILL.md" ]] || continue
   skills+=("$name")
   descriptions+=("$(read_description "$src")")
   (( ${#name} > max_name_len )) && max_name_len=${#name}
@@ -242,7 +281,7 @@ fi
 
 # ─── prompt for prefix ─────────────────────────────────────────────────────────
 
-if (( interactive )); then
+if (( interactive )) && ! (( prefix_set )); then
   printf '\n'
   printf '   %sNamespace prefix?%s %s(optional — press enter for none)%s\n' \
     "${BOLD}" "${RESET}" "${DIM}" "${RESET}"
@@ -254,6 +293,10 @@ if (( interactive )); then
   IFS= read -r prefix <"$tty_in" || prefix=""
   prefix="${prefix#"${prefix%%[![:space:]]*}"}"   # ltrim
   prefix="${prefix%"${prefix##*[![:space:]]}"}"   # rtrim
+  if [[ -n "$prefix" && ! "$prefix" =~ ^[a-zA-Z0-9_:.\-]+$ ]]; then
+    fail "prefix may only contain letters, digits, '_', '-', ':', '.' (got '$prefix')"
+    exit 2
+  fi
   printf '\n'
 fi
 
@@ -360,6 +403,23 @@ if (( interactive )); then
   fi
 fi
 
+# ─── prompt for statusline ─────────────────────────────────────────────────────
+
+if (( interactive )) && [[ -z "$statusline_choice" ]] && [[ -f "$STATUSLINE_SRC" ]]; then
+  printf '\n'
+  printf '   %sInstall the hawk statusline?%s %s(project · branch · context %%)%s\n' \
+    "${BOLD}" "${RESET}" "${DIM}" "${RESET}"
+  printf '   %swrites ~/.claude/hawk-statusline.sh and updates ~/.claude/settings.json%s\n' \
+    "${DIM}" "${RESET}"
+  printf '\n   %sinstall? [y/N]>%s ' "${CYAN}" "${RESET}"
+  IFS= read -r reply <"$tty_in" || reply=""
+  case "$reply" in
+    y|Y|yes|YES) statusline_choice="yes" ;;
+    *)           statusline_choice="no"  ;;
+  esac
+  printf '\n'
+fi
+
 # ─── install ───────────────────────────────────────────────────────────────────
 
 should_install() {
@@ -381,6 +441,7 @@ hr
 count=0
 fresh=0
 replaced=0
+installed_skill_dirs=()   # absolute paths of SKILL.md dirs this run wrote
 for name in "${skills[@]}"; do
   should_install "$name" || continue
   src="$SOURCE_DIR/$name"
@@ -409,6 +470,7 @@ for name in "${skills[@]}"; do
       sed -i.bak -E "s/^name:[[:space:]]*${name}[[:space:]]*$/name: ${installed_name}/" "$dest/SKILL.md"
       rm -f "$dest/SKILL.md.bak"
     fi
+    installed_skill_dirs+=("$dest")
     if (( existed )); then
       printf '   %s↻%s %s %s(replaced)%s\n' "${YELLOW}" "${RESET}" "$display" "${DIM}" "${RESET}"
       replaced=$((replaced + 1))
@@ -427,19 +489,238 @@ if [[ ${#only_list[@]} -gt 0 && $count -eq 0 ]]; then
   exit 1
 fi
 
+# ─── agents ────────────────────────────────────────────────────────────────────
+# Subagent definitions live at ~/.claude/agents/<name>.md and are referenced
+# by skills via Agent(subagent_type="<name>", …). Always installed alongside
+# skills — they're tiny and the audit-using skills depend on them.
+# When --prefix is set: rewrite each agent's filename + `name:` field, and
+# rewrite all agent-name references inside SKILL.md files this run installed
+# so the wiring matches.
+
+AGENTS_TARGET="$HOME/.claude/agents"
+agents_count=0
+agent_names=()
+
+if [[ -d "$AGENTS_SRC" ]]; then
+  # Enumerate agent base names. Validate each — `${name}` is interpolated
+  # into sed regexes and filenames; lowercase letters/digits/hyphens only.
+  for src in "$AGENTS_SRC"/*.md; do
+    [[ -f "$src" ]] || continue
+    n="$(basename "$src" .md)"
+    if [[ ! "$n" =~ ^[a-z0-9-]+$ ]]; then
+      fail "agent name '$n' must be lowercase letters/digits/hyphens"
+      exit 1
+    fi
+    agent_names+=("$n")
+  done
+
+  if (( ${#agent_names[@]} > 0 )); then
+    if (( dry_run )); then
+      step "Planning agents → ${BOLD}${AGENTS_TARGET}${RESET}"
+      hr
+      for name in "${agent_names[@]}"; do
+        installed="${prefix}${name}"
+        dest="$AGENTS_TARGET/${installed}.md"
+        if [[ -e "$dest" ]]; then
+          printf '   %s↻%s %s.md %s(would replace)%s\n' "${YELLOW}" "${RESET}" "$installed" "${DIM}" "${RESET}"
+        else
+          printf '   %s+%s %s.md %s(would install)%s\n' "${GREEN}" "${RESET}" "$installed" "${DIM}" "${RESET}"
+        fi
+      done
+      hr
+    else
+      mkdir -p "$AGENTS_TARGET"
+      step "Installing agents → ${BOLD}${AGENTS_TARGET}${RESET}"
+      hr
+      for name in "${agent_names[@]}"; do
+        src="$AGENTS_SRC/${name}.md"
+        installed="${prefix}${name}"
+        dest="$AGENTS_TARGET/${installed}.md"
+        existed=0
+        [[ -e "$dest" ]] && existed=1
+        cp "$src" "$dest"
+        # Rewrite the agent's `name:` frontmatter field when prefixed.
+        if [[ -n "$prefix" ]]; then
+          sed -i.bak -E "s/^name:[[:space:]]*${name}[[:space:]]*$/name: ${installed}/" "$dest"
+          rm -f "$dest.bak"
+        fi
+        if (( existed )); then
+          printf '   %s↻%s %s.md %s(replaced)%s\n' "${YELLOW}" "${RESET}" "$installed" "${DIM}" "${RESET}"
+        else
+          printf '   %s✓%s %s.md\n' "${GREEN}" "${RESET}" "$installed"
+        fi
+        agents_count=$((agents_count + 1))
+      done
+      hr
+
+      # Rewrite agent-name references inside SKILL.md files THIS RUN installed.
+      # Restricted to installed_skill_dirs so we don't touch unrelated user
+      # skills or older hawk installs at a different prefix.
+      # One sed pass per file with all agent rewrites combined as -e args.
+      if [[ -n "$prefix" ]] && (( ${#installed_skill_dirs[@]} > 0 )); then
+        sed_args=()
+        for name in "${agent_names[@]}"; do
+          # Word-bounded match: requires non-word/non-hyphen on each side so we
+          # don't rewrite inside longer names (`audit-logic-extra`) or wildcard
+          # references in prose (`audit-*`).
+          sed_args+=(-e "s/([^a-zA-Z0-9_-])${name}([^a-zA-Z0-9_-])/\1${prefix}${name}\2/g")
+        done
+        for md_dir in "${installed_skill_dirs[@]}"; do
+          md="$md_dir/SKILL.md"
+          [[ -f "$md" ]] || continue
+          sed -i.bak -E "${sed_args[@]}" "$md"
+          rm -f "$md.bak"
+        done
+      fi
+    fi
+  fi
+fi
+
+# ─── statusline ────────────────────────────────────────────────────────────────
+
+statusline_installed=0
+statusline_settings_note=""
+
+install_statusline() {
+  local dest="$HOME/.claude/hawk-statusline.sh"
+  local settings="$HOME/.claude/settings.json"
+  # Bare path; the script's shebang handles execution. Avoids a quoting
+  # bug when $HOME contains spaces (e.g. "/Users/Pablo Perez/...").
+  local cmd="$dest"
+  local ts
+  ts="$(date +%s)-$$"   # date+pid: collision-free across rapid reruns
+
+  if [[ ! -f "$STATUSLINE_SRC" ]]; then
+    warn "statusline source missing at $STATUSLINE_SRC — skipping"
+    return 1
+  fi
+
+  if (( dry_run )); then
+    if [[ -f "$dest" ]]; then
+      printf '   %s↻%s hawk-statusline.sh %s(would replace)%s\n' \
+        "${YELLOW}" "${RESET}" "${DIM}" "${RESET}"
+    else
+      printf '   %s+%s hawk-statusline.sh %s(would install)%s\n' \
+        "${GREEN}" "${RESET}" "${DIM}" "${RESET}"
+    fi
+    if [[ -f "$settings" ]]; then
+      printf '   %s↻%s settings.json statusLine %s(would update)%s\n' \
+        "${YELLOW}" "${RESET}" "${DIM}" "${RESET}"
+    else
+      printf '   %s+%s settings.json %s(would create)%s\n' \
+        "${GREEN}" "${RESET}" "${DIM}" "${RESET}"
+    fi
+    statusline_installed=1
+    return 0
+  fi
+
+  # Back up existing script if it exists and differs from what we ship.
+  if [[ -f "$dest" ]] && ! cmp -s "$STATUSLINE_SRC" "$dest"; then
+    cp "$dest" "${dest}.bak.${ts}"
+  fi
+  cp "$STATUSLINE_SRC" "$dest"
+  chmod +x "$dest"
+  printf '   %s✓%s hawk-statusline.sh %s→ %s%s\n' \
+    "${GREEN}" "${RESET}" "${DIM}" "$dest" "${RESET}"
+
+  # Update settings.json. jq is required for in-place edits; without it,
+  # we only create from scratch and tell the user to merge by hand.
+  if command -v jq >/dev/null 2>&1; then
+    # Same-filesystem temp file so the rename is atomic.
+    local tmp
+    tmp="$(mktemp -- "$HOME/.claude/.settings.XXXXXX")"
+    if [[ -f "$settings" ]]; then
+      # Merge into any existing .statusLine — preserves user-set siblings
+      # like `padding` and `hideVimModeIndicator`.
+      if ! jq --arg cmd "$cmd" \
+        '.statusLine = (.statusLine // {}) + {type:"command", command:$cmd}' \
+        "$settings" >"$tmp" 2>/dev/null; then
+        rm -f "$tmp"
+        warn "could not parse $settings — leaving it untouched"
+        statusline_settings_note="manual: add { \"statusLine\": { \"type\":\"command\", \"command\":\"$cmd\" } }"
+        statusline_installed=1
+        return 0
+      fi
+      cp "$settings" "${settings}.bak.${ts}"
+      mv "$tmp" "$settings"
+      printf '   %s✓%s settings.json statusLine %s(prev backed up)%s\n' \
+        "${GREEN}" "${RESET}" "${DIM}" "${RESET}"
+    else
+      jq -n --arg cmd "$cmd" \
+        '{statusLine:{type:"command", command:$cmd}}' >"$settings"
+      rm -f "$tmp"
+      printf '   %s✓%s settings.json %s(created)%s\n' \
+        "${GREEN}" "${RESET}" "${DIM}" "${RESET}"
+    fi
+  else
+    if [[ -f "$settings" ]]; then
+      warn "jq not found — settings.json left untouched"
+      statusline_settings_note="manual: add { \"statusLine\": { \"type\":\"command\", \"command\":\"$cmd\" } }"
+    else
+      cat >"$settings" <<EOF
+{
+  "statusLine": {
+    "type": "command",
+    "command": "$cmd"
+  }
+}
+EOF
+      printf '   %s✓%s settings.json %s(created)%s\n' \
+        "${GREEN}" "${RESET}" "${DIM}" "${RESET}"
+    fi
+  fi
+
+  statusline_installed=1
+  return 0
+}
+
+if [[ "$statusline_choice" == "yes" ]]; then
+  printf '\n'
+  if (( dry_run )); then
+    step "Planning statusline install"
+  else
+    step "Installing statusline"
+  fi
+  hr
+  install_statusline || true
+  hr
+fi
+
 # ─── summary ───────────────────────────────────────────────────────────────────
 
 printf '\n'
+sl_line=""
+if (( statusline_installed )); then
+  sl_line="${BOLD}Statusline${RESET}  ${DIM}~/.claude/hawk-statusline.sh${RESET}"
+fi
+
 if (( dry_run )); then
-  boxed \
-    "${BOLD}Dry-run complete${RESET}" \
-    "${DIM}$count skill(s) would be installed${RESET}"
+  if [[ -n "$sl_line" ]]; then
+    boxed \
+      "${BOLD}Dry-run complete${RESET}" \
+      "${DIM}$count skill(s) would be installed${RESET}" \
+      "" \
+      "$sl_line"
+  else
+    boxed \
+      "${BOLD}Dry-run complete${RESET}" \
+      "${DIM}$count skill(s) would be installed${RESET}"
+  fi
 else
-  boxed \
-    "${GREEN}✓${RESET} ${BOLD}Installed $count skill(s)${RESET}  ${DIM}($fresh new · $replaced replaced)${RESET}" \
-    "" \
-    "${BOLD}Try${RESET}   ${CYAN}/${prefix}coding-process${RESET}  ${CYAN}/${prefix}plan-small${RESET}  ${CYAN}/${prefix}code-audit${RESET}" \
-    "${BOLD}Read${RESET}  ${DIM}~/.claude/skills/${prefix}<name>/SKILL.md${RESET}" \
+  lines=(
+    "${GREEN}✓${RESET} ${BOLD}Installed $count skill(s)${RESET}  ${DIM}($fresh new · $replaced replaced)${RESET}"
+    ""
+    "${BOLD}Try${RESET}   ${CYAN}/${prefix}coding-process${RESET}  ${CYAN}/${prefix}plan-small${RESET}  ${CYAN}/${prefix}code-audit${RESET}"
+    "${BOLD}Read${RESET}  ${DIM}~/.claude/skills/${prefix}<name>/SKILL.md${RESET}"
     "${BOLD}Docs${RESET}  ${DIM}https://github.com/${REPO}${RESET}"
+  )
+  if [[ -n "$sl_line" ]]; then
+    lines+=("" "$sl_line")
+  fi
+  boxed "${lines[@]}"
+  if [[ -n "$statusline_settings_note" ]]; then
+    printf '\n'
+    warn "$statusline_settings_note"
+  fi
 fi
 printf '\n'

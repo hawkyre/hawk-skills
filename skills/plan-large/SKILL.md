@@ -182,85 +182,36 @@ manually walk through the user flow at /widgets and confirm…").
 
 ### Step 7 — Self-improving review (mandatory)
 
-Launch **one** independent review subagent. Same anti-bias contract
-as `plan-small`'s reviewer. The orchestrator pastes the plan content
-**inline**; the subagent must not read `.plans/*`.
-
-**Prompt template** (substitute `{{...}}`):
+Run `plan-small`'s Step 5 (call `plan-reviewer` with the standard
+plan/standards/common-mistakes user prompt), then **append this
+Posture block to the user prompt before sending**:
 
 ```
-You are an independent reviewer of a large, multi-increment plan. You
-did not write this plan. You do not know what the user said, what the
-broader codebase does, or which feature this is.
+## Posture: multi-increment plan
 
-## Anti-bias contract — non-negotiable
+This plan is structured as a DAG of increments spanning multiple
+PRs. In addition to the eight standard review dimensions, also
+review:
 
-- DO NOT read any file under `.plans/`. The full plan content is
-  pasted in this prompt. Reading the file would also expose sibling
-  plans and skew you.
-- DO NOT search the codebase for the user's intent. You may read
-  specific source files to verify a technical claim in the plan
-  (e.g. "this function exists at file.ts:42").
-- DO NOT defend the plan. Argue against it.
+9.  **Increment ordering and dependency correctness**:
+    - Does Inc N depend on something Inc N-1 didn't produce?
+    - Are any dependencies missing or wrong?
+    - Does any increment do too much (split candidate)?
+    - Could increments run in parallel that the DAG serializes?
+10. **Backwards compatibility, migration, rollback, observability**:
+    are these covered for each increment that ships independently?
 
-## Review dimensions
-
-For each, mark MUST-FIX / SHOULD-FIX / CONSIDER:
-
-1. Technical soundness: signatures, data shapes, integration points.
-2. Convention compliance vs the standards pasted below.
-3. Increment ordering and dependency correctness:
-   - Does Inc N depend on something Inc N-1 didn't produce?
-   - Are any dependencies missing or wrong?
-   - Does any increment do too much (split candidate)?
-   - Could increments run in parallel that the DAG serializes?
-4. Completeness: missing increments, missing files within increments,
-   missing edge cases, missing verification.
-5. Implementability: is each increment scoped tightly enough to be
-   one PR? Are done criteria observable?
-6. Risk coverage: are the listed risks adequate? Any unlisted ones?
-7. Architectural decisions: are the chosen approaches the right
-   ones? Are the rejected alternatives rejected for the right reason?
-8. Backwards compat / migration / rollback / observability gaps.
-
-## Plan content
-
-{{paste full plan.md content here}}
-
-## Standards (pasted inline)
-
-{{full content of relevant .agents/standards/ files}}
-
-## Common mistakes (pasted inline)
-
-{{full content of relevant .agents/common-mistakes/ files}}
-
-## Output format
-
-## MUST-FIX
-1. <issue> — <concrete change to make in the plan>
-
-## SHOULD-FIX
-1. …
-
-## CONSIDER
-1. …
-
-If the plan is solid, return empty sections. Do not pad.
+If MUST-FIX changes the increment DAG, mark it explicitly so the
+orchestrator can update the "Increment DAG" section to match.
 ```
 
 ### Step 8 — Apply review findings
 
-Same as `plan-small` Step 6:
-
-- Apply every **MUST-FIX** directly to `.plans/<slug>/plan.md`.
-- Apply every **SHOULD-FIX** directly unless it conflicts with a
-  user-confirmed Step-3 decision (in which case demote to CONSIDER).
-- Append every **CONSIDER** under "Open questions (CONSIDER from
-  review)" in the plan file.
-
-If MUST-FIX changes the increment DAG, update the "Increment DAG"
-section to match — the DAG and the increments must stay consistent.
+Same as `plan-small` Step 6 (apply MUST-FIX directly, SHOULD-FIX
+unless it conflicts with a Step-3 decision, append CONSIDER under
+"Open questions"). **Additionally**: if any MUST-FIX changes the
+increment DAG, update the "Increment DAG" section to match — the
+DAG and the increments must stay consistent.
 
 ### Step 9 — Present to user
 

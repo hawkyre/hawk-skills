@@ -1,28 +1,25 @@
 ---
 name: code-audit-hardcore
-description: Aggressive cleanup audit scoped to the user's specified changes. Same five blind specialists as code-audit, plus a maximum-improvement posture — any code tangibly relevant to the changes (setup, wiring, sibling files, dependencies) that can be made cleaner WILL be made cleaner. Always improve over preserve. Refactors too large for an inline patch get routed through /plan-small or /plan-large.
+description: Aggressive cleanup audit scoped to the user's specified changes. Same blind audit-* specialists as code-audit, plus a maximum-improvement posture — any code tangibly relevant to the changes (setup, wiring, sibling files, dependencies) that can be made cleaner WILL be made cleaner. Always improve over preserve. Refactors too large for an inline patch get routed through /plan-small or /plan-large.
 ---
 
 # Code Audit (Hardcore)
 
-This is the aggressive sibling of `code-audit`. Same scope as
-`code-audit`: whatever changes the user pointed at (a diff, a feature,
-an endpoint, a module). Same five parallel blind specialists. Same
-anti-bias contract.
+Run `code-audit`'s entire process (read `code-audit/SKILL.md`), with
+the deltas below. Don't restate the shared shape — the orchestrator
+follows code-audit, then applies these overrides.
 
-The difference is the posture: when there is a choice between leaving
-tangibly-relevant code as it is and improving it, the skill **always
-chooses to improve**. No exceptions. Conventions are not a defense.
-"It's not strictly in the diff" is not a defense. If the changes touch
-an endpoint and the surrounding API setup is wrong, the API setup gets
-fixed. If a small fix sits next to duplicated utilities, the
-duplicates get collapsed.
+## Deltas vs `code-audit`
 
-If the improvement is too large to land inline (whole-API rework,
-module redesign, schema change), the skill routes that work through
-`/plan-small` or `/plan-large` instead of patching directly. Inline
-patches and plan-routed refactors can both come out of a single
-hardcore run.
+| Aspect | code-audit | hardcore |
+|---|---|---|
+| `tier=` default | `auto` | `deep` (run all five specialists) |
+| Modes | `report` or `cleanup` | always cleanup — no `report` |
+| Scope | the user-specified diff | core scope **expanded** to tangibly-relevant code (rule below) |
+| Specialist user prompt | standard template | standard template **+ "Posture: hardcore" block** (below) |
+| Merge step | dedupe and verify | additionally **promote NOTE→FIX** when the NOTE describes a concrete improvement |
+| Apply step | apply every FIX | **classify each FIX small/big** (below); apply small inline; route big through `/plan-small` or `/plan-large` |
+| Output | code-audit report template | hardcore template (below) |
 
 ## When to use
 
@@ -38,13 +35,14 @@ For a strict diff-only review, use `code-audit`.
 
 ## Args
 
-- `scope=<files|diff|HEAD~N>` — same shape as `code-audit`. Default:
-  the working diff against `HEAD`. This is the **initial** (core)
-  scope; the skill will expand from here per the rule below.
-- `agents=full|light` — pass-through to the specialists. `full` (5)
-  by default; `light` drops the online-research pass.
+- `scope=<files|diff|HEAD~N>` — same shape as `code-audit`. The
+  **initial** core scope; the skill expands from here per the rule
+  below.
+- `tier=auto|light|standard|deep` — passed through to code-audit's
+  triage. Default `deep`. Pass `tier=auto` to let `audit-triage`
+  right-size on the **expanded** review scope.
 
-There is no `mode=report`. Hardcore always cleans up. For a
+There is no `mode=` arg — hardcore always cleans up. For a
 report-only hardcore-style review, use `code-audit mode=report` and
 read it as a punch list.
 
@@ -67,79 +65,30 @@ The union of the core scope and the tangibly-relevant set is the
 **review scope**. Show this expansion to the user before fixing —
 they should know what code the skill is touching.
 
-Then, the **always-improve rule** applies across the entire review
+The **always-improve rule** then applies across the entire review
 scope:
 
 > When evaluating any line in the review scope, if there is a choice
 > between leaving it as it is and improving it, choose to improve.
 > Always. Conventions in the surrounding code are not a defense.
 
-"Improvement" means the same dimensions the five specialists already
+"Improvement" means the same dimensions the specialists already
 cover: cleaner naming, simpler control flow, fewer abstractions, no
 dead code, consistent layering, correct types, no duplication,
 proper error paths, modern API usage.
 
-## Process
+## Specialist user prompt — Posture: hardcore
 
-1. **Identify the core scope** from the args (or the working diff if
-   unspecified). Diff capture: `git diff <range> > /tmp/hawk-code-audit-hardcore-diff.patch 2>&1`.
-2. **Compute the review scope** by expanding the core scope per the
-   tangibly-relevant rule above. Print the expansion so the user can
-   see what's about to be touched. Per-file slices are extracted from
-   the capture via `rg -n` for specialist prompts; never paste the raw
-   concatenated diff.
-3. **Load shared context**: `.agents/standards/`,
-   `.agents/common-mistakes/`, the project check command.
-4. **Spawn the five specialists in parallel** — one message,
-   multiple Agent tool calls. Each gets the standard `code-audit`
-   specialist prompt **with the hardcore addendum appended** (see
-   below). The anti-bias contract is unchanged: subagents do not
-   read `.plans/`, do not see the user's goal, evaluate code on its
-   own merits.
-5. **Merge specialist outputs** the same way `code-audit` merges
-   them (dedupe by `path:line`, attach overlapping reasoning).
-6. **Promote NOTEs to FIXes** wherever a NOTE describes a concrete
-   improvement to code in the review scope. The always-improve rule
-   means "this works but could be simpler" is a FIX in hardcore
-   mode, not a NOTE.
-7. **Classify each FIX** as small (apply inline) or big (route to a
-   plan):
-   - **Big** if any of these are true:
-     - Touches >5 files.
-     - Changes a database schema or migration.
-     - Changes a public API (exported function signature, HTTP
-       route shape, CLI argument).
-     - Refactors a module's external surface (rename, split, merge).
-     - Requires user-facing behavior change.
-     - The specialist's `Fix:` is "redesign X" / "extract Y into a
-       new module" rather than a concrete patch.
-   - Otherwise: **small**.
-
-   When in doubt, classify big. Plans are cheap; bad refactors are
-   not.
-8. **Apply small fixes inline** (cleanup mode). Run the check
-   command after each batch, capturing output: `<check-cmd> > /tmp/hawk-code-audit-hardcore-check-<batch>.log 2>&1`, then `rg -n 'error|warning|fail|FAIL' /tmp/hawk-code-audit-hardcore-check-<batch>.log | head -50`. If it fails, fix or revert before moving on (max 3 attempts).
-9. **Route big fixes through plan skills**. Cluster related big
-   fixes by module/theme. For each cluster, invoke `/plan-small` if
-   it's a single-PR refactor, `/plan-large` if it spans modules or
-   PRs. The plan skills handle their own questions, file output,
-   self-review. Hardcore stops at "plan written" and surfaces the
-   plan paths.
-10. **Final pass**: run the check command across the affected
-    files (`<check-cmd> > /tmp/hawk-code-audit-hardcore-check-final.log 2>&1`, then `rg -n 'error|warning|fail|FAIL' /tmp/hawk-code-audit-hardcore-check-final.log | head -50`). Report (template below).
-
-## Hardcore prompt addendum
-
-Each specialist receives the standard `code-audit` prompt with this
-appended at the top:
+When fanning out to the `audit-*` specialists, append this block to
+the standard `code-audit` user prompt:
 
 ```
-## Hardcore mode — always-improve posture
+## Posture: hardcore — always improve
 
 You are reviewing the user's diff PLUS the tangibly-relevant
 surrounding code (setup, wiring, sibling files in the same module,
-files the diff depends on). The full review scope is provided
-below.
+files the diff depends on). The full review scope is in the
+"Files / diff in scope" section above.
 
 When deciding between flagging an improvement to relevant
 surrounding code and letting it go because "it's not in the strict
@@ -163,8 +112,38 @@ improvement to code in scope. NOTE is for "interesting but no
 action" only.
 ```
 
-The rest of the standard specialist prompt (anti-bias contract,
-brief, scope, standards, output format) applies unchanged.
+## Small-vs-big classifier
+
+After merge, each FIX is **big** if any of these are true:
+
+- Touches >5 files.
+- Changes a database schema or migration.
+- Changes a public API (exported function signature, HTTP route
+  shape, CLI argument).
+- Refactors a module's external surface (rename, split, merge).
+- Requires user-facing behavior change.
+- The specialist's `Fix:` is "redesign X" / "extract Y into a new
+  module" rather than a concrete patch.
+
+Otherwise: **small**.
+
+When in doubt, classify big. Plans are cheap; bad refactors are not.
+
+Apply small fixes inline (cleanup mode). Cluster related big fixes by
+module/theme; for each cluster, invoke `/plan-small` (single-PR
+refactor) or `/plan-large` (spans modules or PRs). The plan skills
+handle questions, file output, self-review. Hardcore stops at "plan
+written" and surfaces the plan paths. Public API changes are always
+big — route through a plan even if the patch itself is small.
+
+Run the project check command after each batch of small fixes:
+
+```
+<check-cmd> > /tmp/hawk-code-audit-hardcore-check-<batch>.log 2>&1
+rg -n 'error|warning|fail|FAIL' /tmp/hawk-code-audit-hardcore-check-<batch>.log | head -50
+```
+
+If it fails, fix or revert before moving on (max 3 attempts).
 
 ## Output template
 
@@ -205,10 +184,11 @@ brief, scope, standards, output format) applies unchanged.
   improvement.
 - Big fixes go through plan skills. Hardcore does not implement
   them inline.
-- Specialists run with the standard `code-audit` anti-bias contract:
-  no `.plans/` reads, no goal context, evaluate code on its own
-  merits.
+- Specialists run as `audit-*` subagents with their built-in
+  anti-bias contract. The hardcore posture is added per-call in the
+  user prompt; do not duplicate it inside the agent's system prompt.
 - The check command must pass after every batch of small fixes.
-- Public API changes are always big fixes — route through a plan,
-  even if the patch itself is small.
-- **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-code-audit-hardcore-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-code-audit-hardcore-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline. Specialist prompts include this bullet verbatim and receive narrowed slices, never raw captures.
+- **Big-output discipline.** Heavy command output goes to
+  `/tmp/hawk-code-audit-hardcore-<step>.log`, narrow with
+  `rg -n '<pattern>' /tmp/hawk-code-audit-hardcore-<step>.log | head -50`.
+  See `code-audit/SKILL.md` and the README for the full recipe.

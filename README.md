@@ -47,7 +47,9 @@ curl -fsSL https://raw.githubusercontent.com/hawkyre/hawk-skills/main/install.sh
 
 The installer drops every selected skill into `~/.claude/skills/`. Re-run any time to refresh.
 
-To remove what you installed, run `./uninstall.sh` from a checkout — interactive picker, with `--dry-run`, `--all`, and `--prefix <p>` flags. It only touches directories whose `SKILL.md` description matches what we ship, so unrelated skills with colliding names are left alone.
+The interactive flow also offers to install the **hawk statusline** (`statusline/statusline.sh`) — a compact project · branch · context-% line for Claude Code. It's optional. From a one-liner, pass `--statusline` to opt in or `--no-statusline` to skip the prompt. The script is copied to `~/.claude/hawk-statusline.sh` and `~/.claude/settings.json` is updated to point at it (jq required for safe in-place edits; otherwise the snippet is printed).
+
+To remove what you installed, run `./uninstall.sh` from a checkout — interactive picker, with `--dry-run`, `--all`, `--prefix <p>`, and `--statusline` / `--no-statusline` flags. It only touches directories whose `SKILL.md` description matches what we ship, so unrelated skills with colliding names are left alone.
 
 ## The idea: blind, parallel, independent subagents
 
@@ -57,36 +59,50 @@ Most of the heavy skills here fan out to subagents that work **in parallel**, wi
 > A reviewer who only has the diff and a specialist brief evaluates the code on its own merits.
 
 ```
-                 ┌──────────────────┐
-                 │  diff / files    │
-                 └────────┬─────────┘
-                          │
-        ┌─────────┬───────┼───────┬─────────┐
-        ▼         ▼       ▼       ▼         ▼
-    ┌───────┐ ┌──────┐ ┌─────┐ ┌──────┐ ┌──────┐
-    │ logic │ │ sec  │ │ simp│ │ rsrch│ │ arch │   ← five specialists,
-    │ + edge│ │      │ │     │ │      │ │      │     fresh sessions, no
-    └───┬───┘ └──┬───┘ └──┬──┘ └──┬───┘ └──┬───┘     plan, no goal context
-        │        │        │        │        │
-        └────────┴────────┼────────┴────────┘
-                          ▼
-                    ┌───────────┐
-                    │  merged   │
-                    │  FIX/NOTE │   → applied (cleanup) or reported (report)
-                    └───────────┘
+                ┌──────────────────┐
+                │  diff / files    │
+                └────────┬─────────┘
+                         │
+                         ▼
+                ┌─────────────────┐
+                │  audit-triage   │  ← haiku, ~1-2s
+                │ (light/std/deep)│    classifies scope, picks subset
+                └────────┬────────┘
+                         │
+        ┌────────┬───────┼───────┬────────┐
+        ▼        ▼       ▼       ▼        ▼
+   ┌───────┐ ┌──────┐ ┌─────┐ ┌──────┐ ┌──────┐
+   │ logic │ │ sec  │ │simp │ │rsrch │ │ arch │  ← sonnet, parallel,
+   └───┬───┘ └──┬───┘ └──┬──┘ └──┬───┘ └──┬───┘    fresh sessions,
+       │        │        │        │        │       no plan, no goal
+       └────────┴────────┼────────┴────────┘
+                         ▼
+                   ┌───────────┐
+                   │  merged   │
+                   │  FIX/NOTE │  → applied (cleanup) or reported (report)
+                   └───────────┘
 ```
 
-The five `code-audit` specialists:
+Each specialist is its own `audit-*` subagent file under
+`agents/`, defined once and called from every audit-using skill:
 
 |     | Specialist             | Looks for                                                                                                                    |
 | --- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Logic & edge cases** | off-by-one, null/NaN, empty inputs, concurrency, ordering, error paths, boundary values                                      |
-| 2   | **Security**           | input validation, authn/authz, injection, XSS, SSRF, prompt injection, trust boundaries                                      |
-| 3   | **Simplification**     | long functions, deep nesting, dead code, duplication, names that don't match behavior                                        |
-| 4   | **Online research**    | verifies third-party APIs against current docs via WebSearch + WebFetch — flags deprecated APIs and version-specific gotchas |
-| 5   | **Architecture**       | layer separation, file placement, import direction, type-safety, public API stability                                        |
+| 1   | **`audit-logic`**      | off-by-one, null/NaN, empty inputs, concurrency, ordering, error paths, boundary values                                      |
+| 2   | **`audit-security`**   | input validation, authn/authz, injection, XSS, SSRF, prompt injection, trust boundaries                                      |
+| 3   | **`audit-simplification`** | long functions, deep nesting, dead code, duplication, names that don't match behavior                                    |
+| 4   | **`audit-research`**   | verifies third-party APIs against current docs via WebSearch + WebFetch — flags deprecated APIs and version-specific gotchas |
+| 5   | **`audit-architecture`** | layer separation, file placement, import direction, type-safety, public API stability                                      |
 
-Same pattern shows up in `code-audit-hardcore`, `implement-plan-audited`, and the self-review passes inside `plan-small` and `plan-large`.
+Plus **`audit-triage`** — a haiku-powered classifier that reads the
+diff and picks the specialist subset for the job. Light tasks get 2
+specialists; risky ones get all five. The triage decision is
+internal — you don't see it unless you ask.
+
+The same pattern is reused by `code-audit-hardcore`,
+`implement-plan-audited`, and `review-large-pr`. The plan skills
+(`plan-small`, `plan-large`) use a separate **`plan-reviewer`**
+agent for their self-review pass — same shape, plan-shaped brief.
 
 ## Skills
 
@@ -104,13 +120,13 @@ Same pattern shows up in `code-audit-hardcore`, `implement-plan-audited`, and th
 | Skill                                                              | Job                                                                                                                                              |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [`implement-plan`](skills/implement-plan/SKILL.md)                 | Execute an approved plan, increment by increment. Runs independent increments in parallel.                                                       |
-| [`implement-plan-audited`](skills/implement-plan-audited/SKILL.md) | Same, but the five audit specialists run at strategic checkpoints (after a few S, two M, or one L — annotated into the plan up front). `mode=auto` runs unattended for hours; falls back to manual on repeated failure. |
+| [`implement-plan-audited`](skills/implement-plan-audited/SKILL.md) | Same, but the `audit-*` specialists run at strategic checkpoints (after a few S, two M, or one L — annotated into the plan up front). `audit-triage` right-sizes per checkpoint. `mode=auto` runs unattended for hours; falls back to manual on repeated failure. |
 
 ### Quality
 
 | Skill                                                        | Job                                                                                                                                                                                                                           |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`code-audit`](skills/code-audit/SKILL.md)                   | Five blind specialists in parallel. `mode=report` (default) or `cleanup`. `agents=light` drops the research pass.                                                                                                             |
+| [`code-audit`](skills/code-audit/SKILL.md)                   | Blind specialists in parallel; subset chosen by `audit-triage`. `mode=report` (default) or `cleanup`. `tier=auto\|light\|standard\|deep` to right-size or force the specialist subset.                                        |
 | [`code-audit-hardcore`](skills/code-audit-hardcore/SKILL.md) | Same scope as `code-audit`, expanded to tangibly-related code (setup, wiring, siblings). Always-improve posture: when there's a choice between leaving relevant code as-is and improving it, it improves. Big refactors route through `/plan-small` or `/plan-large`. |
 | [`fix-bug`](skills/fix-bug/SKILL.md)                         | Hypothesis-first root cause analysis. Always considers online research at the hypothesis stage; applies it when triggers match (third-party error, library used <3 times, version-specific behavior, "should work per docs"). |
 | [`refactor`](skills/refactor/SKILL.md)                       | One-dimension refactors: readability, modularity, performance, type safety, dedup.                                                                                                                                            |
@@ -212,16 +228,34 @@ Files are prefixed `hawk-<skill>-` so a session can prune with
 
 ```
 hawk-skills/
-├── install.sh          # one-shot installer (TUI + curl-pipe support)
-├── uninstall.sh        # interactive uninstaller
+├── install.sh           # one-shot installer (TUI + curl-pipe support)
+├── uninstall.sh         # interactive uninstaller
 ├── README.md
 ├── LICENSE
+├── statusline/
+│   └── statusline.sh    # optional Claude Code statusline
+├── agents/              # subagent definitions (one .md per agent)
+│   ├── audit-triage.md  # haiku-powered tier classifier
+│   ├── audit-logic.md   # specialist briefs — referenced by skills
+│   └── ...
 └── skills/
     ├── code-audit/SKILL.md
     ├── code-audit-hardcore/SKILL.md
     ├── coding-process/SKILL.md
     └── ...
 ```
+
+The audit-style skills (`code-audit`, `code-audit-hardcore`,
+`implement-plan-audited`, `review-large-pr`) call the `audit-*`
+subagents directly — `Agent(subagent_type="audit-logic", …)` and
+similar. The plan skills (`plan-small`, `plan-large`) call
+`plan-reviewer` the same way. Each specialist's brief, anti-bias
+contract, tool-usage policy, and output schema live in the agent
+file once instead of being inlined across every skill — update the
+agent and every skill that uses it gets the new behavior on the
+next call. Install-time `--prefix` rewrites both the agent filenames
+and every concrete `subagent_type=` reference in installed skills,
+so namespaced installs stay wired.
 
 ## License
 

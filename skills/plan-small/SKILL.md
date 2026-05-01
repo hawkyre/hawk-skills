@@ -120,45 +120,20 @@ S | M | L
 
 ### Step 5 — Self-improving review (mandatory)
 
-After the plan file is written, launch **one** independent review
-subagent. The subagent is fresh — no chat history, no plan file
-access. The orchestrator pastes the plan content **inline** in the
-prompt.
-
-**Subagent prompt template** (substitute `{{...}}`):
+After the plan file is written, call the `plan-reviewer` subagent.
+Its system prompt — anti-bias contract, the eight review dimensions,
+severity rules, and output format — lives in
+`~/.claude/agents/plan-reviewer.md`. The orchestrator's per-call
+user prompt contains only the plan content and the relevant
+standards/common-mistakes:
 
 ```
-You are an independent plan reviewer. You did not write this plan. You
-do not know what feature it is part of, what the user said, or what
-the broader codebase does. Your only context is the plan content
-pasted below and the standards/common-mistakes pasted below.
+Agent(subagent_type="plan-reviewer", prompt=<USER PROMPT>)
+```
 
-## Anti-bias contract — non-negotiable
+Where `<USER PROMPT>` is:
 
-- DO NOT read any file under `.plans/`. The plan content is in this
-  prompt. Reading the file directly would also expose sibling plans
-  and skew your review.
-- DO NOT search the codebase for the user's intent or feature
-  description. Limit codebase reads to verifying technical claims in
-  the plan (e.g. "this function exists at file.ts:42") if needed.
-- DO NOT defend the plan. Argue against it.
-
-## Review dimensions
-
-For each, mark MUST-FIX / SHOULD-FIX / CONSIDER:
-
-1. Technical soundness: are the signatures, data shapes, integration
-   points correct?
-2. Convention compliance: does the plan respect the standards pasted
-   below? Where it deviates, is the deviation justified?
-3. Completeness: are edge cases covered? Are there missing files
-   the plan should touch but doesn't?
-4. Implementability: is each file's spec concrete enough to execute
-   without further design work?
-5. Verification: is the verification section specific and observable?
-6. Assumptions: are the listed assumptions all reasonable, and are
-   any unlisted assumptions hidden in the file specs?
-
+```
 ## Plan content
 
 {{paste full plan.md content here}}
@@ -170,20 +145,10 @@ For each, mark MUST-FIX / SHOULD-FIX / CONSIDER:
 ## Common mistakes (pasted inline)
 
 {{full content of relevant .agents/common-mistakes/ files}}
-
-## Output format
-
-## MUST-FIX
-1. <issue> — <concrete change to make in the plan>
-
-## SHOULD-FIX
-1. …
-
-## CONSIDER
-1. …
-
-If the plan is solid, return empty sections. Do not pad.
 ```
+
+Single-PR plans don't need the multi-increment DAG check, so no
+extra Posture block is needed here.
 
 ### Step 6 — Apply review findings to the plan file
 

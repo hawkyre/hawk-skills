@@ -1,15 +1,16 @@
 ---
 name: implement-plan-audited
-description: Execute a plan increment-by-increment with the five code-audit specialists running independently at strategic checkpoints. Before execution, the orchestrator annotates the plan with audit checkpoints based on increment sizes (e.g. after a single L, after two M, after a few S). Two modes — `manual` stops between increments for user review, `auto` applies audit fixes and proceeds without interruption (designed for hours of unattended execution). Audit subagents are blind to the plan and the goal, so they evaluate code on its own merits.
+description: Execute a plan increment-by-increment with the audit-* specialists running independently at strategic checkpoints. Before execution, the orchestrator annotates the plan with audit checkpoints based on increment sizes (e.g. after a single L, after two M, after a few S). Two modes — `manual` stops between increments for user review, `auto` applies audit fixes and proceeds without interruption (designed for hours of unattended execution). Audit subagents are blind to the plan and the goal, so they evaluate code on its own merits.
 ---
 
 # Implement Plan (Audited)
 
-Same execution shape as `implement-plan`, with one addition: at strategic
-**audit checkpoints** (not after every increment), the **five code-audit
-specialists** run in parallel against the cumulative diff since the
-previous checkpoint and either auto-apply their fixes (auto mode) or
-surface them for user review (manual mode).
+Same execution shape as `implement-plan`, with one addition: at
+strategic **audit checkpoints** (not after every increment), the
+`audit-*` specialist subagents run in parallel against the cumulative
+diff since the previous checkpoint and either auto-apply their fixes
+(auto mode) or surface them for user review (manual mode). The
+specialist subset is decided per checkpoint by `audit-triage`.
 
 Checkpoints are computed and written into the plan file before
 execution starts, so audits happen after a few small increments, after
@@ -17,11 +18,13 @@ two medium increments, after a single large increment, etc. — not after
 every single increment. A 10-increment plan typically gets ~3 audits,
 not 10.
 
-The specialists are independent and blind. They do not read the plan, the
-increment text, or the user's goal. They see only the diff and their
-specialist brief — see `code-audit/SKILL.md` for the full anti-bias
-contract. That blindness is the point: an audit that knows the plan
-defends the plan; an audit that only sees the code evaluates the code.
+The specialists are independent and blind. They do not read the plan,
+the increment text, or the user's goal. They see only the diff and
+their specialist brief — see `code-audit/SKILL.md` for the
+orchestration shape and the agent files in `~/.claude/agents/audit-*.md`
+for the briefs and anti-bias contracts. That blindness is the point:
+an audit that knows the plan defends the plan; an audit that only sees
+the code evaluates the code.
 
 ## When to use this skill vs `implement-plan`
 
@@ -38,8 +41,12 @@ defends the plan; an audit that only sees the code evaluates the code.
 ## Args
 
 - `mode=manual|auto` — default `manual`.
-- `agents=full|light` — passed through to the audit specialists.
-  `full` = 5 specialists (default). `light` = 4 (skip online research).
+- `tier=auto|light|standard|deep` — default `auto`. Passed through to
+  each checkpoint audit. `auto` calls `audit-triage` per checkpoint
+  and lets it pick the specialist subset for that checkpoint's diff.
+  Explicit values force the same tier on every checkpoint. See
+  `code-audit/SKILL.md` for the static tier→specialist mapping.
+  Replaces the old `agents=full|light` knob.
 - `plan=<path>` — explicit plan file path. Default: detect from `.plans/`.
 
 ## Process
@@ -132,9 +139,10 @@ For each increment in dependency order:
    are not biased.
 3. **Checkpoint gate** — if this increment is annotated
    `**Audit checkpoint:** yes`:
-   - **Audit (5 specialists, parallel)** on the cumulative diff since
-     the previous checkpoint (or the pre-execution ref captured in
-     Step 1, for the first checkpoint) — see Step 3 below.
+   - **Audit** on the cumulative diff since the previous checkpoint
+     (or the pre-execution ref captured in Step 1, for the first
+     checkpoint) — see Step 3 below. Specialist subset is decided
+     per checkpoint by `audit-triage`.
    - **Reconcile** — see Step 4.
    - Append at most a one-line audit note under the checkpoint
      increment (e.g. `audit: 3 small fixes applied, 0 plan-overrides,
@@ -163,34 +171,73 @@ git diff --name-only <prev_checkpoint_ref>..HEAD > /tmp/hawk-implement-plan-audi
 git diff <prev_checkpoint_ref>..HEAD -- <path> > /tmp/hawk-implement-plan-audited-diff-<ckpt>-<file-slug>.patch 2>&1
 ```
 
-Specialist prompts receive narrowed `rg -n` slices from the per-file
-captures, never the full cumulative diff. Launch **all five
-code-audit specialists in parallel** in a single message with
-multiple Agent tool calls.
+Specialist user prompts receive narrowed `rg -n` slices from the
+per-file captures, never the full cumulative diff.
 
-Tell each specialist (in their prompt) which increments are covered
-by this audit window (e.g. "this diff covers Inc 5, Inc 6, Inc 7")
-**without** revealing the increment titles, the plan, or the goal.
-This lets specialists scope their reasoning to the diff size without
-biasing them toward the plan's framing.
-
-Each specialist receives the standard prompt from
-`code-audit/SKILL.md` (specialist brief, anti-bias contract, files
-inline, standards inline, output format). Two **non-negotiable** lines
-must appear in every specialist prompt for this skill:
+**Per-checkpoint triage** (when `tier=auto`, the default). Before
+fanning out, call:
 
 ```
-## Anti-bias guard (mandatory in this context)
-- DO NOT read any file under `.plans/` or any plan directory.
-- You do not know what feature this increment is part of, what other
-  increments exist, or what the overall plan looks like. Your context
-  is the diff and your specialist brief.
-- Evaluate the code on its own merits. Conventions are not a defense.
+Agent(subagent_type="audit-triage", prompt=<scope, signals>)
 ```
 
-Light mode skips specialist #4 (online research).
+Input: the checkpoint's file list, scope stats (lines +/-, layers
+spanned, increments covered), and the narrowed risk-signal greps.
+The agent returns a tier and specialist subset **for this checkpoint
+only** — different checkpoints in the same run can legitimately land
+on different tiers. Triage decision is internal; record it in the
+per-checkpoint audit note (e.g. `audit: 3 small fixes applied, 0
+plan-overrides, covered Inc 5–7`) but do not surface it to the user
+unless asked.
 
-Every specialist prompt **also** includes the canonical Big-output discipline Rules bullet (see Rules below) verbatim, so each blind specialist applies the same /tmp+rg recipe when they need to capture output during their review.
+When `tier` is forced (`light|standard|deep`), skip the triage call
+and use the static mapping in `code-audit/SKILL.md`.
+
+**If the triage reply doesn't parse** (missing `tier:`, unknown tier,
+empty subset, or no response): fall back to `tier=standard` for this
+checkpoint and continue. Auto mode does **not** stop on a malformed
+triage — bias is up.
+
+**Fan out the specialists in parallel** — one message, one Agent call
+per role in the triaged subset. Use the concrete agent names so
+install-time prefix rewriting stays consistent:
+
+```
+Agent(subagent_type="audit-logic",         prompt=<USER PROMPT>)
+Agent(subagent_type="audit-security",      prompt=<USER PROMPT>)
+Agent(subagent_type="audit-simplification",prompt=<USER PROMPT>)
+Agent(subagent_type="audit-research",      prompt=<USER PROMPT>)
+Agent(subagent_type="audit-architecture",  prompt=<USER PROMPT>)
+```
+
+Skip any role not in the triage subset. The agent body owns the role,
+anti-bias contract, verification rule, and output schema. The
+orchestrator's per-call user prompt contains only:
+
+```
+## Files / diff in scope
+
+{{narrowed `rg -n` slices from the per-file captures}}
+
+## Standards (pasted inline, do not fetch)
+
+{{full content of every relevant `.agents/standards/` file}}
+
+## Common mistakes (pasted inline, do not fetch)
+
+{{full content of every relevant `.agents/common-mistakes/` file}}
+
+## Context
+
+This diff covers Inc {{X}}–{{Y}}. Do NOT look up which increments
+those are or what they did — they are integer indices, nothing more.
+```
+
+Tell each specialist which increment indices the diff covers (so they
+can scale reasoning to the window size) but **never** reveal increment
+titles, descriptions, or the plan path. The agent's anti-bias contract
+already forbids reading `.plans/`; do not weaken it by pasting goal
+context here.
 
 ### Step 4 — Reconcile
 
@@ -279,8 +326,12 @@ revert.
 
 - Audits run **only at annotated checkpoints**, not after every
   increment. Step 1.5 computes the cadence; the loop honors it.
-- The audit always runs five (or four in light) parallel specialists
-  when it runs. Single-pass audits are gone.
+- Whichever specialists run, run **in parallel** as fresh subagents.
+  The subset per checkpoint is decided by triage (or by an explicit
+  `tier=`); a single-pass non-parallel audit is never allowed.
+- Triage runs once per checkpoint, not once per skill invocation —
+  different checkpoints in the same run can legitimately land on
+  different tiers.
 - Specialist prompts are self-contained and blind: no plan path, no
   goal, no chat history. They may be told which increment indices
   the diff covers, but never their titles or descriptions.

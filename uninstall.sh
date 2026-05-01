@@ -10,6 +10,8 @@
 #   ./uninstall.sh --all           remove every detected installation, no prompts
 #   ./uninstall.sh --prefix hawk-  scope to a single prefix
 #   ./uninstall.sh --prefix ""     scope to unprefixed installs
+#   ./uninstall.sh --statusline    also remove the hawk statusline
+#   ./uninstall.sh --no-statusline skip the statusline prompt
 #
 # Must be run from a hawk-skills checkout (the script reads skills/ to know
 # which directory names belong to us).
@@ -90,6 +92,7 @@ dry_run=0
 all=0
 prefix_filter=""
 prefix_filter_set=0
+statusline_choice=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -100,6 +103,8 @@ while [[ $# -gt 0 ]]; do
       prefix_filter="$2"; prefix_filter_set=1
       shift 2
       ;;
+    --statusline)    statusline_choice="yes"; shift ;;
+    --no-statusline) statusline_choice="no";  shift ;;
     -h|--help)
       banner
       cat <<EOF
@@ -109,6 +114,8 @@ ${BOLD}Usage${RESET}
   ./uninstall.sh --all           remove every detected installation, no prompts
   ./uninstall.sh --prefix hawk-  scope to a single prefix
   ./uninstall.sh --prefix ""     scope to unprefixed installs
+  ./uninstall.sh --statusline    also remove the hawk statusline
+  ./uninstall.sh --no-statusline skip the statusline prompt
 
 ${BOLD}Detection${RESET}
   An install is identified as ours when a directory under
@@ -152,6 +159,8 @@ banner
 # ─── enumerate known skills ────────────────────────────────────────────────────
 
 # read_description <SKILL.md path> → echoes the description: line
+# Trim trailing whitespace and CR so editor artifacts don't break the
+# description-match safety net.
 read_description() {
   local md="$1"
   [[ -f "$md" ]] || { printf ''; return; }
@@ -159,6 +168,7 @@ read_description() {
     /^---[[:space:]]*$/ { fence++; if (fence == 2) exit; next }
     fence == 1 && /^description:/ {
       sub(/^description:[[:space:]]*/, "")
+      sub(/[[:space:]\r]+$/, "")
       print
       exit
     }
@@ -168,14 +178,20 @@ read_description() {
 # Sort known skill names by length, descending. Longest-suffix wins so
 # "code-audit" doesn't shadow "code-audit-hardcore" during prefix detection.
 known_names=()
+# First, gather (length, name) pairs for real skills only — underscore-
+# prefixed and SKILL.md-less directories aren't skills. Done outside the
+# process substitution because bash 3.2 (macOS default) can't parse
+# `[[ … ]]` conditionals nested inside `< <( … )`.
+unsorted=()
+for src in "$SOURCE_DIR"/*/; do
+  n="$(basename "$src")"
+  [[ "$n" == _* ]] && continue
+  [[ -f "$src/SKILL.md" ]] || continue
+  unsorted+=("${#n} $n")
+done
 while IFS= read -r line; do
   known_names+=("${line#* }")
-done < <(
-  for src in "$SOURCE_DIR"/*/; do
-    n="$(basename "$src")"
-    printf '%d %s\n' "${#n}" "$n"
-  done | sort -rn
-)
+done < <(printf '%s\n' "${unsorted[@]}" | sort -rn)
 
 # Pre-compute description for each known skill (for the safety check below).
 known_descs=()
@@ -344,23 +360,180 @@ done
 
 hr
 
-if (( count == 0 )); then
+# ─── agents ────────────────────────────────────────────────────────────────────
+# Detect and remove agent files we ship. Same description-match safety net as
+# skills — if an agent at ~/.claude/agents/<X>.md has a description matching
+# what's in our agents/<X>.md, it's ours.
+
+AGENTS_SRC="$SCRIPT_DIR/agents"
+AGENTS_TARGET="$HOME/.claude/agents"
+agents_removed=0
+
+if [[ -d "$AGENTS_SRC" ]] && [[ -d "$AGENTS_TARGET" ]]; then
+  # Build (name → description) map from source.
+  src_agent_names=()
+  src_agent_descs=()
+  for src in "$AGENTS_SRC"/*.md; do
+    [[ -f "$src" ]] || continue
+    src_agent_names+=("$(basename "$src" .md)")
+    src_agent_descs+=("$(read_description "$src")")
+  done
+
+  # Walk every installed agent file, check whether the suffix matches a known
+  # agent AND the descriptions agree. Remove if both.
+  pending_remove=()
+  for installed in "$AGENTS_TARGET"/*.md; do
+    [[ -f "$installed" ]] || continue
+    base="$(basename "$installed" .md)"
+    inst_desc="$(read_description "$installed")"
+    for i in "${!src_agent_names[@]}"; do
+      sname="${src_agent_names[i]}"
+      sdesc="${src_agent_descs[i]}"
+      if [[ "$base" == *"$sname" ]] && [[ -n "$sdesc" ]] && [[ "$inst_desc" == "$sdesc" ]]; then
+        pending_remove+=("$installed")
+        break
+      fi
+    done
+  done
+
+  if (( ${#pending_remove[@]} > 0 )); then
+    if (( dry_run )); then
+      step "Planning agents removal ← ${BOLD}${AGENTS_TARGET}${RESET}"
+      hr
+      for f in "${pending_remove[@]}"; do
+        printf '   %s−%s %s %s(would remove)%s\n' "${YELLOW}" "${RESET}" "$(basename "$f")" "${DIM}" "${RESET}"
+        agents_removed=$((agents_removed + 1))
+      done
+      hr
+    else
+      step "Removing agents ← ${BOLD}${AGENTS_TARGET}${RESET}"
+      hr
+      for f in "${pending_remove[@]}"; do
+        rm -f "$f"
+        printf '   %s−%s %s\n' "${YELLOW}" "${RESET}" "$(basename "$f")"
+        agents_removed=$((agents_removed + 1))
+      done
+      hr
+    fi
+  fi
+fi
+
+if (( count == 0 )) && (( agents_removed == 0 )) && [[ "$statusline_choice" != "yes" ]]; then
   warn "nothing selected — exiting"
   exit 0
+fi
+
+# ─── statusline ────────────────────────────────────────────────────────────────
+
+statusline_dest="$HOME/.claude/hawk-statusline.sh"
+statusline_settings="$HOME/.claude/settings.json"
+statusline_present=0
+[[ -f "$statusline_dest" ]] && statusline_present=1
+
+if (( statusline_present )) && (( interactive )) && [[ -z "$statusline_choice" ]]; then
+  printf '\n'
+  printf '   %sAlso remove the hawk statusline?%s %s(%s)%s\n' \
+    "${BOLD}" "${RESET}" "${DIM}" "$statusline_dest" "${RESET}"
+  printf '\n   %sremove? [y/N]>%s ' "${CYAN}" "${RESET}"
+  IFS= read -r reply <"$tty_in" || reply=""
+  case "$reply" in
+    y|Y|yes|YES) statusline_choice="yes" ;;
+    *)           statusline_choice="no"  ;;
+  esac
+  printf '\n'
+fi
+
+statusline_removed=0
+
+if [[ "$statusline_choice" == "yes" ]]; then
+  if (( dry_run )); then
+    step "Planning statusline removal"
+    hr
+    if (( statusline_present )); then
+      printf '   %s−%s hawk-statusline.sh %s(would remove)%s\n' \
+        "${YELLOW}" "${RESET}" "${DIM}" "${RESET}"
+    else
+      printf '   %s·%s hawk-statusline.sh %s(not present)%s\n' \
+        "${DIM}" "${RESET}" "${DIM}" "${RESET}"
+    fi
+    if [[ -f "$statusline_settings" ]] && command -v jq >/dev/null 2>&1 \
+       && jq -e '.statusLine.command // "" | test("hawk-statusline\\.sh")' \
+            "$statusline_settings" >/dev/null 2>&1; then
+      printf '   %s−%s settings.json statusLine %s(would clear)%s\n' \
+        "${YELLOW}" "${RESET}" "${DIM}" "${RESET}"
+    fi
+    hr
+    statusline_removed=1
+  else
+    step "Removing statusline"
+    hr
+    if (( statusline_present )); then
+      rm -f "$statusline_dest"
+      printf '   %s−%s hawk-statusline.sh\n' "${YELLOW}" "${RESET}"
+    else
+      printf '   %s·%s hawk-statusline.sh %s(not present)%s\n' \
+        "${DIM}" "${RESET}" "${DIM}" "${RESET}"
+    fi
+    if [[ -f "$statusline_settings" ]]; then
+      if command -v jq >/dev/null 2>&1; then
+        if jq -e '.statusLine.command // "" | test("hawk-statusline\\.sh")' \
+            "$statusline_settings" >/dev/null 2>&1; then
+          # Same-filesystem temp, atomic rename, collision-free backup suffix.
+          tmp="$(mktemp -- "$HOME/.claude/.settings.XXXXXX")"
+          if jq 'del(.statusLine)' "$statusline_settings" >"$tmp" 2>/dev/null; then
+            cp "$statusline_settings" "${statusline_settings}.bak.$(date +%s)-$$"
+            mv "$tmp" "$statusline_settings"
+            printf '   %s−%s settings.json statusLine cleared %s(prev backed up)%s\n' \
+              "${YELLOW}" "${RESET}" "${DIM}" "${RESET}"
+          else
+            rm -f "$tmp"
+            warn "could not edit settings.json — left untouched"
+          fi
+        fi
+      else
+        warn "jq not found — settings.json left untouched (remove the statusLine block manually)"
+      fi
+    fi
+    hr
+    statusline_removed=1
+  fi
 fi
 
 # ─── summary ───────────────────────────────────────────────────────────────────
 
 printf '\n'
+sl_line=""
+if (( statusline_removed )); then
+  sl_line="${BOLD}Statusline${RESET}  ${DIM}removed${RESET}"
+fi
+
 if (( dry_run )); then
-  boxed \
-    "${BOLD}Dry-run complete${RESET}" \
-    "${DIM}$count installation(s) would be removed${RESET}"
+  dry_lines=(
+    "${BOLD}Dry-run complete${RESET}"
+    "${DIM}$count skill(s) would be removed${RESET}"
+  )
+  if (( agents_removed > 0 )); then
+    dry_lines+=("${DIM}$agents_removed agent(s) would be removed${RESET}")
+  fi
+  if [[ -n "$sl_line" ]]; then
+    dry_lines+=("" "$sl_line")
+  fi
+  boxed "${dry_lines[@]}"
 else
-  boxed \
-    "${GREEN}✓${RESET} ${BOLD}Removed $count installation(s)${RESET}" \
-    "" \
-    "${BOLD}Reinstall${RESET}  ${DIM}./install.sh${RESET}" \
+  lines=(
+    "${GREEN}✓${RESET} ${BOLD}Removed $count skill(s)${RESET}"
+  )
+  if (( agents_removed > 0 )); then
+    lines+=("${GREEN}✓${RESET} ${BOLD}Removed $agents_removed agent(s)${RESET}")
+  fi
+  lines+=(
+    ""
+    "${BOLD}Reinstall${RESET}  ${DIM}./install.sh${RESET}"
     "${BOLD}Docs${RESET}       ${DIM}https://github.com/${REPO}${RESET}"
+  )
+  if [[ -n "$sl_line" ]]; then
+    lines+=("" "$sl_line")
+  fi
+  boxed "${lines[@]}"
 fi
 printf '\n'
