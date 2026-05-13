@@ -48,25 +48,48 @@ clean. Each Explore brief includes the canonical Big-output discipline Rules bul
 - Common-mistakes from `.agents/common-mistakes/`.
 - Project check command.
 
-### Step 3 — Question gate (search code, then ask)
+### Step 3 — Question gate (two-track: ask product, search code)
 
-Identical mechanism to `plan-small` Step 3:
+Identical mechanism to `plan-small` Step 3, scaled up:
 
-1. Generate the questions that will shape architecture, increment
-   order, and integration points.
-2. **Search the code first** for each. If the answer is in the code,
-   record it as `Answered from code: … — see <file:line>` and don't
-   ask.
-3. In **one** `AskUserQuestion` call, surface:
-   - The remaining questions.
-   - The **core architectural assumptions and decisions** the skill
-     is planning to take. Examples relevant at this scale:
-     - "I'm planning to keep the new feature behind a feature flag —
-       confirm or override."
-     - "I'm assuming the migration runs online (no downtime) using
-       the existing `pgmigrate` setup — confirm or override."
-     - "I'm planning to add a new `billing/` module rather than
-       extend `payments/` — confirm or override."
+**Track A — Product / feature-design questions.** Ask the user. At
+plan-large scale these are bigger questions: what user segments are in
+scope, what's the success metric, what's the rollout strategy, what
+parts are MVP vs follow-up, what's the deprecation story for the thing
+this replaces. **Default to asking** unless the user's request already
+pins them down.
+
+**Track B — Code-architecture questions.** Search the code first
+(grep / Read / Explore subagent). If the code is silent, promote to
+ask the user. If the code answers, record as
+`Decision: <decision>. Source: code @ <file:line>` under
+`## Assumptions and answers from code`.
+
+Then, in **one** `AskUserQuestion` call, surface both tracks plus the
+**core architectural assumptions and decisions** the skill is planning
+to take. Frame each as a confirmable choice. Examples relevant at this
+scale:
+
+- *(Track A — product scope)* "Should the new dashboard show
+  per-team or per-org metrics by default?"
+- *(Track A — rollout)* "Are we rolling this out behind a feature
+  flag gated to internal users first, or shipping straight to GA?"
+- *(Track B — architectural assumption)* "I'm planning to keep the
+  new feature behind a feature flag — confirm or override."
+- *(Track B — migration story)* "I'm assuming the migration runs
+  online (no downtime) using the existing `pgmigrate` setup —
+  confirm or override."
+- *(Track B — module placement)* "I'm planning to add a new
+  `billing/` module rather than extend `payments/` — confirm or
+  override."
+
+If there are no Track A questions, no unanswered Track B questions,
+and no non-trivial architectural assumptions, skip `AskUserQuestion`
+and proceed.
+
+**Interpretive note:** in-repo product docs / PRDs / design docs count
+as "code can answer" by analogy. Search them before asking Track A
+questions whose answer might already be written down.
 
 ### Step 4 — Adversarial pre-write pass (in your head)
 
@@ -111,32 +134,29 @@ Slug rule: kebab-case from the user's request, ≤4 words. If
 └── visuals/         # optional — mockups, diagrams, screenshots
 ```
 
-`plan.md` structure:
+`plan.md` structure (Summary and Increment DAG first — see Rules):
 
 ```markdown
 # {{Title}}
 
-## Context
-The problem, the constraints, the intended outcome.
-
-## Architectural decisions
-- Decision: <decision>. Rationale: …. Alternatives rejected: …
-- … (the chosen approach's load-bearing decisions, briefly justified)
-
-## Assumptions and answers from code
-- Decision: <decision>. Source: code @ <file:line> | user-confirmed | default.
-- … (output of Step 3's code search and user-answer round)
-
-## Risks accepted
-- <risk>: <mitigation or "accept; revisit if X">
+## Summary
+One paragraph: problem, approach, what ships. This is the elevator
+pitch — what the feature does, the high-level shape of the chosen
+approach, and the scope of the rollout. A reviewer should be able to
+read just this section and know whether to dig in.
 
 ## Increment DAG
-A short list of increments and their dependency edges. Example:
+Visual + textual DAG: 1-line per increment with explicit
+`depends on` / `unblocks` edges. The ordering source of truth for
+`implement-plan*`. Example:
 
 - Inc 1 — Foundation (S) — depends on: none — unblocks: 2, 3
 - Inc 2 — Schema (M) — depends on: 1 — unblocks: 4, 5
 - Inc 3 — API (M) — depends on: 1 — unblocks: 5
 - ...
+
+(Optionally include an ASCII diagram showing the parallel/serial
+structure when the DAG isn't trivially linear.)
 
 ## Increments
 
@@ -166,6 +186,17 @@ For each file (mandatory for non-trivial increments):
 ### Inc 2 — …
 …
 
+## Architectural decisions
+- Decision: <decision>. Rationale: …. Alternatives rejected: …
+- … (the chosen approach's load-bearing decisions, briefly justified)
+
+## Assumptions and answers from code
+- Decision: <decision>. Source: code @ <file:line> | user-confirmed | default.
+- … (output of Step 3's code search and user-answer round)
+
+## Risks accepted
+- <risk>: <mitigation or "accept; revisit if X">
+
 ## Cross-cutting verification
 Any end-to-end checks that span multiple increments (e.g. "after Inc 5,
 manually walk through the user flow at /widgets and confirm…").
@@ -179,6 +210,7 @@ manually walk through the user flow at /widgets and confirm…").
 ## Out of scope
 - Explicit non-goals. Future work that isn't this plan.
 ```
+
 
 ### Step 7 — Self-improving review (mandatory)
 
@@ -215,13 +247,17 @@ DAG and the increments must stay consistent.
 
 ### Step 9 — Present to user
 
-Print:
+Print, in this order (matching the file's section order so the user
+sees what they'd see scrolling the file):
 
 - The plan directory path.
-- A short summary (one paragraph).
-- The increment DAG.
-- The architectural decisions and assumptions list.
-- The CONSIDER items.
+- The `## Summary` section verbatim from the file (read it back; do
+  not regenerate). The file's summary is canonical.
+- The `## Increment DAG` section.
+- The architectural decisions and assumptions list (from the
+  `## Architectural decisions` and `## Assumptions and answers from
+  code` sections).
+- The CONSIDER items appended in Step 8.
 
 Do not start implementing. Suggest `/implement-plan` (or
 `/implement-plan-audited mode=auto` for hours-long unattended runs)
@@ -231,10 +267,17 @@ when the user is ready.
 
 - The plan directory is mandatory — large features without persistent
   plans always degrade across sessions.
-- Question gate first; never ask the user something the code already
-  answers.
+- **Two-track question gate.** For code-architecture questions, search
+  the code first — never ask the user something the code answers. For
+  product / feature-design questions, ask the user — they have input
+  the code can't provide. In-repo product docs / PRDs count as "code
+  can answer" by analogy.
 - Surface architectural assumptions alongside questions. The user
   cannot override what they don't see.
+- The plan file's `## Summary` and `## Increment DAG` sections come
+  first so a reviewer can land on what's being built and how it's
+  ordered before any reference-style content. Architectural decisions,
+  assumptions, and risks sit lower as reference material.
 - The self-review subagent is mandatory and blind to `.plans/`. The
   orchestrator pastes the plan inline.
 - Apply MUST-FIX and SHOULD-FIX before presenting. The user sees the

@@ -48,6 +48,7 @@ the code evaluates the code.
   `code-audit/SKILL.md` for the static tier→specialist mapping.
   Replaces the old `agents=full|light` knob.
 - `plan=<path>` — explicit plan file path. Default: detect from `.plans/`.
+- `commit=auto|yes|no` — default `auto`. Commits per increment AND per audit checkpoint unless on `main`/`master`. `yes` forces commits even on trunk; `no` suppresses commits entirely.
 
 ## Process
 
@@ -181,22 +182,34 @@ fanning out, call:
 Agent(subagent_type="audit-triage", prompt=<scope, signals>)
 ```
 
-Input: the checkpoint's file list, scope stats (lines +/-, layers
-spanned, increments covered), and the narrowed risk-signal greps.
-The agent returns a tier and specialist subset **for this checkpoint
-only** — different checkpoints in the same run can legitimately land
-on different tiers. Triage decision is internal; record it in the
-per-checkpoint audit note (e.g. `audit: 3 small fixes applied, 0
-plan-overrides, covered Inc 5–7`) but do not surface it to the user
-unless asked.
+The triage **agent contract** — tiers, decision rule, output schema —
+is owned by `agents/audit-triage.md` and reused here without
+modification.
 
-When `tier` is forced (`light|standard|deep`), skip the triage call
-and use the static mapping in `code-audit/SKILL.md`.
+The **orchestrator-side triage call** — what fields to assemble in
+the user prompt — is mostly shared with `code-audit/SKILL.md` Step 2,
+with explicit deltas because the two skills capture diffs differently
+(code-audit uses a single accumulated diff; this skill uses per-file
+captures across a cumulative range). The delegation table is the
+single source of truth:
 
-**If the triage reply doesn't parse** (missing `tier:`, unknown tier,
-empty subset, or no response): fall back to `tier=standard` for this
-checkpoint and continue. Auto mode does **not** stop on a malformed
-triage — bias is up.
+| Field                    | Source                                                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Changed files            | **Supersedes** `code-audit` Step 2. This skill uses `git diff --name-only <prev_checkpoint_ref>..HEAD` (from Step 3's per-file capture flow), not `git diff --name-only --stat <range>`. |
+| Risk-signal greps        | **Same as** `code-audit` Step 2: narrowed `rg -n` over the diff captures, omit signals with no matches. **Aggregation note**: this skill's per-file capture structure means greps run per-file; aggregate the matches across all per-file captures into a single combined set, *then* apply the ~30-line cap to the combined set (not per file). |
+| Scope stats              | **Same as** `code-audit` Step 2 (`files: N`, `lines added/removed: +A/-B`, `layers spanned: <…>`) **plus** an additional field: `increments covered: Inc X–Y`.                          |
+| Parse contract           | **Same**: `tier: <…>`, `specialists: <…>`, `reason: <…>` lines, in that order.                                                                                                        |
+| Parse-fail fallback      | **Same**: `tier=standard`, continue, never silently skip the audit. Auto mode does **not** stop on a malformed triage — bias is up.                                                   |
+| When forced              | **Same**: `tier=light|standard|deep` skips triage and uses the static mapping in `code-audit/SKILL.md`.                                                                                |
+| When run                 | **Delta**: per checkpoint, not once per skill invocation. Different checkpoints in the same run can legitimately land on different tiers.                                             |
+
+If `code-audit` Step 2 changes any "Same" row, this skill inherits the
+change automatically; the "Supersedes" and "Delta" rows are this
+skill's responsibility.
+
+Triage decision is internal; record it in the per-checkpoint audit
+note (e.g. `audit: 3 small fixes applied, 0 plan-overrides, covered
+Inc 5–7`) but do not surface it to the user unless asked.
 
 **Fan out the specialists in parallel** — one message, one Agent call
 per role in the triaged subset. Use the concrete agent names so
@@ -275,21 +288,36 @@ Because a checkpoint covers multiple increments, the merged FIX list
 will often be larger than a per-increment audit. Group findings by
 file in the user-facing report so reviewers can scan quickly.
 
-### Step 5 — Commit hygiene (optional)
+### Step 5 — Commit hygiene (default-on)
 
-If the user wants commits per increment, commit after each increment
-implements (before the checkpoint gate). At the checkpoint, after
-reconcile, make a separate `audit:` commit for any fixes the
-specialists applied — this keeps audit cleanup separable from
-feature work in `git log`.
+Commits per increment AND per audit checkpoint are **default-on**.
+Branch detection, opt-out flow, stop-out edge cases, staging-by-
+discovery (`git diff --name-only HEAD` + `git ls-files --others --exclude-standard`), rename/deletion handling, no-AI-attribution rule, pre-commit hook failure handling, and empty-change skip — all delegate to `implement-plan` Step 3.5 in full. The one addition here: commits fire both after each increment **and** after each audit fix pass.
 
-Message style: single-line, imperative. Use `feat({slug}): …` for
-increments and `audit({slug}): cleanup for Inc X–Y` for checkpoint
-fixes. No Co-Authored-By unless explicitly requested.
+**Commit cadence:**
 
-In auto mode, commits per increment plus a separate audit commit
-per checkpoint are recommended — they make it easy to bisect after
-a long run and to revert audit changes independently if needed.
+- **Per increment** — after the increment's check command is clean and `**Status**:` is marked `done`, before any checkpoint gate. Follow `implement-plan` Step 3.5 for staging, branch detection, message style, and attribution rules.
+- **Per audit fix pass** — after Step 4 (reconcile) applies fixes and the check command is clean. Re-discover changes with `git diff --name-only HEAD` after applying fixes (do not track per-FIX file lists during Step 4 — re-discovery is the canonical source). **Separate commit from the increment commit**, so audit cleanup is bisectable independent of feature work.
+- If the audit applied **zero fixes**, skip the audit commit entirely (no empty commits).
+
+**Ordering when the increment IS the checkpoint:** the increment commit fires first (Step 2 of the execution loop), then the checkpoint audit runs against the new HEAD, then any audit-fix commit fires after reconcile. This means `git diff --name-only HEAD` for audit-fix staging sees only the audit's changes, not the increment's — because the increment was already committed.
+
+**Commit message style — discovery-driven, with audit-commit
+disambiguation:**
+
+1. Read `git log -10 --oneline` to detect the dominant style.
+2. **Mirror the style for increment commits** verbatim (per `implement-plan` Step 3.5).
+3. **For audit commits**, keep them distinguishable from increment commits in `git log` so a reviewer can peel off audit cleanup with `git revert`. Match the detected style — **check Conventional Commits first** because its `<type>(<scope>):` pattern overlaps the plain-scope pattern below:
+   - Repo uses Conventional Commits (messages match `<type>(<scope>):` — parenthesized scope, e.g. `feat(billing): …`) → audit commits use `chore({{slug}}): audit cleanup for {{increment-labels}}` (e.g. `chore(billing): audit cleanup for Inc 5–7`).
+   - Else if repo uses plain `<scope>: <description>` (no parentheses, e.g. `billing: add invoice export`) → audit commits use `audit: cleanup for {{increment-labels}}` (e.g. `audit: cleanup for Inc 5–7`).
+   - Else if repo uses plain lowercase imperative with no prefix → audit commits prefix with `audit:` literally (e.g. `audit: cleanup for inc 5–7`).
+   - Else (mixed, emoji-prefixed, JIRA-ticket-prefixed, or unclear) → default to plain `audit: cleanup for {{increment-labels}}`.
+4. **`{{slug}}`** = the plan directory name (last path component of `.plans/<slug>/` from Step 0, e.g. `billing`).
+5. **`{{increment-labels}}`** match whatever the plan's increment labels actually are — typically `Inc 5–7` for a numeric range, but a plan with non-numeric labels (e.g. `Inc foo-bar`) should produce `audit: cleanup for Inc foo-bar`. Mirror the plan, do not normalize.
+
+Auto mode honors the same cadence — the per-increment and per-audit
+commits make a long unattended run easy to bisect after the fact, and
+each commit is a recovery point if a later step fails.
 
 ### Step 6 — Completion
 
@@ -309,6 +337,11 @@ When all increments are `done` (or `blocked-on-user`):
    - Any unresolved NOTEs.
    - Any QUESTIONs that the audit surfaced and the orchestrator
      answered (and how) vs. surfaced for the user.
+   - **Commit count** (when commits are enabled): e.g. "N feature
+     commits + M audit commits" — sanity check for the user after a
+     long auto run. If commits are skipped (on `main`/`master` or
+     `commit=no`), say so explicitly so the user isn't surprised by
+     a clean `git log`.
 
 ## Auto mode — failure handling
 
@@ -351,7 +384,6 @@ revert.
   are always surfaced.
 - Auto mode has a hard floor of 3 retries before falling back to
   manual; it will not loop forever.
-- Honor user-level conventions: one-line commits, no
-  Co-Authored-By, no `--no-verify`, no silent lint dismissal. These
-  apply to both modes.
+- **Commit hygiene** — follow Step 5 in full (which delegates branch detection, staging, message style, no-AI-attribution rule, and pre-commit-hook handling to `implement-plan` Step 3.5). **No AI attribution, ever** — no `Co-Authored-By: Claude`, no `🤖`, no "Generated with Claude" line. No empty audit commits. No `--no-verify`. Both modes.
+- **Triage-call shape is owned by `code-audit/SKILL.md` Step 2.** This skill reuses it per the delegation table in Step 3; do not duplicate or redefine the input/parse contract here.
 - **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-implement-plan-audited-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-implement-plan-audited-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline. In auto mode, never paste a raw /tmp capture into the conversation — only narrowed slices.

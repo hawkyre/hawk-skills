@@ -35,37 +35,61 @@ implicit ones (scale, error tolerance, observability, etc.).
   (check `index.yml`).
 - The project check command (look it up — do not assume).
 
-### Step 3 — Question gate (search code, then ask)
+### Step 3 — Question gate (two-track: ask product, search code)
 
-Generate the top 3–6 questions whose answers will shape the plan. For
-**each** question:
+Generate the top 3–6 questions whose answers will shape the plan, then
+sort them into two tracks:
 
-1. **Search the code first**. Use grep / Read / Explore. Look for:
-   - Existing functions, helpers, or utilities that the answer would
-     dictate.
-   - Config files, schemas, types, or migrations that fix the answer.
-   - Existing patterns in neighboring features.
+**Track A — Product / feature-design questions.** Ask the user. These
+are questions where the user has direct input the code can't answer:
+scope of the MVP, real-time vs batch, in-app vs email, which user
+segment, what counts as success, what failure mode is acceptable.
+**Default to asking** unless the user's request already pins them down.
 
-   For repo-wide searches that may return many hits, capture and narrow: `rg -n '<symbol>' . > /tmp/hawk-plan-small-search-<step>.log 2>&1`, then a second `rg` over the file or `Read` with `offset`/`limit`.
-2. If the answer is in the code, **do not ask the user**. Record it in
-   the plan as `Answered from code: <answer> — see <file:line>`.
-3. If the answer is not in the code, hold the question for the user.
+**Track B — Code-architecture questions.** Search the code first. Use
+grep / Read / Explore. Look for:
+
+- Existing functions, helpers, or utilities that the answer would
+  dictate.
+- Config files, schemas, types, or migrations that fix the answer.
+- Existing patterns in neighboring features.
+
+For repo-wide searches that may return many hits, capture and narrow: `rg -n '<symbol>' . > /tmp/hawk-plan-small-search-<step>.log 2>&1`, then a second `rg` over the file or `Read` with `offset`/`limit`.
+
+If the code answers the question, **do not ask the user**. Record the
+answer in the plan as `Decision: <decision>. Source: code @ <file:line>`
+under `## Decisions and assumptions`. If the code is silent on a
+Track B question, promote it to ask the user.
 
 Then, in **one** `AskUserQuestion` call, present **both**:
 
-- The remaining questions.
+- The Track A questions plus any Track B questions the code didn't
+  answer.
 - The **core assumptions and decisions** the skill is currently
   planning to take. Frame each assumption as a confirmable choice. The
-  user can override any of them. Examples:
-  - "I'm planning to add the new field as nullable for backward compat
-    — confirm or override."
-  - "I'm assuming validation should reuse `lib/validators.ts`'s
-    `validate(...)` — confirm or override."
-  - "I'm planning to put the new endpoint under `/api/v1/widgets` —
-    confirm or override."
+  user can override any of them.
 
-If there are no questions and no non-trivial assumptions, skip
-`AskUserQuestion` and proceed.
+Example questions covering both shapes:
+
+- *(Track A — product scope)* "Should the new export include archived
+  items, or only active ones?"
+- *(Track A — product behavior, framed as assumption)* "On send
+  failure, should we silently retry, surface a toast, or block the
+  form? — I'm planning to surface a toast, confirm or override."
+- *(Track B — code-architecture, only if code is silent)* "I'm
+  assuming validation should reuse `lib/validators.ts`'s `validate(...)`
+  — confirm or override."
+- *(Track B — code-architecture assumption)* "I'm planning to put the
+  new endpoint under `/api/v1/widgets` — confirm or override."
+
+If there are no Track A questions, no unanswered Track B questions,
+and no non-trivial assumptions, skip `AskUserQuestion` and proceed.
+
+**Interpretive note:** in-repo product docs / PRDs / design docs count
+as "code can answer" by analogy. If a question's answer is in
+`docs/PRD-widgets.md`, record it and don't ask. The "search first" rule
+applies to product-domain text the repo carries, not only to source
+code.
 
 ### Step 4 — Write the plan to file
 
@@ -74,19 +98,15 @@ If `.plans/<slug>/` already exists, append `-2`, `-3`, etc.
 
 Plan path: `.plans/<slug>/plan.md`. Create the directory first.
 
-The plan file must contain, in this order:
+The plan file must contain, in this order (Summary first — see Rules):
 
 ```markdown
 # {{Title}}
 
-## Context
-Why this change. What problem it solves. Intended outcome.
-
-## Assumptions and decisions
-- Decision: <decision>. Source: code @ <file:line> | user-confirmed | default.
-- Assumption: <assumption>. Source: …
-- … (every non-trivial assumption from Step 3 ends up here, including the
-  ones that came back from the code search)
+## Summary
+One paragraph: problem, approach, what ships. This is the elevator
+pitch — what the change does and why, in plain prose. A reviewer
+should be able to read just this section and know whether to dig in.
 
 ## Files to touch
 For each file, with concrete signatures and shapes:
@@ -108,6 +128,12 @@ For each file, with concrete signatures and shapes:
 - Manual: <browser steps, API calls, etc.>
 - Done criteria: <one-line, observable>
 
+## Decisions and assumptions
+- Decision: <decision>. Source: code @ <file:line> | user-confirmed | default.
+- Assumption: <assumption>. Source: …
+- … (every non-trivial assumption from Step 3 ends up here, including the
+  ones that came back from the code search)
+
 ## Standards / common-mistakes referenced
 - <path> — why it applies
 
@@ -117,6 +143,7 @@ S | M | L
 ## Open questions (CONSIDER from review)
 - … (filled in by the self-review pass; empty initially)
 ```
+
 
 ### Step 5 — Self-improving review (mandatory)
 
@@ -166,8 +193,10 @@ When the review subagent returns:
 Print:
 
 - The plan path.
-- A short summary (one paragraph).
-- The list of assumptions/decisions surfaced in Step 3.
+- The `## Summary` section verbatim from the file (read it back; do
+  not regenerate). The file's summary is canonical.
+- The list of decisions/assumptions surfaced in Step 3 (from the
+  `## Decisions and assumptions` section).
 - The list of CONSIDER items appended in Step 6.
 
 Do not start implementing. The user reviews the plan, then decides
@@ -190,9 +219,16 @@ does.
 
 - Always write the plan to `.plans/<slug>/plan.md`. Even for the
   smallest changes. The file is the source of truth.
-- Never ask a question whose answer is in the code. Search first.
+- **Two-track question gate.** For code-architecture questions, search
+  the code first — never ask the user something the code answers. For
+  product / feature-design questions, ask the user — they have input
+  the code can't provide. In-repo product docs / PRDs count as "code
+  can answer" by analogy.
 - Always surface assumptions/decisions alongside questions — the user
   cannot override what they don't see.
+- The plan file's `## Summary` section comes first so a reviewer can
+  land on the elevator pitch before any reference-style content.
+  Decisions, assumptions, risks sit lower as reference material.
 - The review subagent is fresh and blind to `.plans/`. The orchestrator
   pastes the plan content inline.
 - Apply MUST-FIX and SHOULD-FIX before showing the user. The user sees
