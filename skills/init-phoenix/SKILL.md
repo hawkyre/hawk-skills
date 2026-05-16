@@ -87,17 +87,19 @@ Bootstrap a fully working Docker-based Phoenix dev environment from a bare AI-sc
 1. **`config/dev.exs`** — apply these changes:
    - Endpoint binds to `{0, 0, 0, 0}` (all interfaces, required for Docker)
    - DB hostname from `System.get_env("DB_HOST") || "localhost"`
-   - Live reload backend: `backend: :fs_poll, backend_opts: [interval: 500]` (required for Docker-on-macOS — native fs events don't cross the VM boundary)
+   - Live reload backend: `backend: :fs_poll, backend_opts: [interval: 500]` — **macOS only** (native fs events don't cross the VM boundary). On Linux, native inotify works across bind mounts; leave the default and skip this.
    - If libcluster: add Gossip topology config
 
-2. **`lib/<app_name>/application.ex`** — if libcluster is included:
+2. **`config/test.exs`** — DB hostname from `System.get_env("DB_HOST") || "localhost"`, exactly as in `dev.exs`. The test Repo also runs inside the container and must reach Postgres at host `db`. If you skip this, `make up` and `make setup` still pass but `make check` fails at the test step with `tcp connect (localhost:5432): connection refused`.
+
+3. **`lib/<app_name>/application.ex`** — if libcluster is included:
    - Replace the `DNSCluster` child spec with:
      ```elixir
      topologies = Application.get_env(:<app_name>, :cluster_topologies, [])
      {Cluster.Supervisor, [topologies, [name: <AppModule>.ClusterSupervisor]]}
      ```
 
-3. **`config/runtime.exs`** — verify `PHX_HOST` and `DATABASE_URL` are read from env for prod.
+4. **`config/runtime.exs`** — verify `PHX_HOST` and `DATABASE_URL` are read from env for prod.
 
 ### Phase 6: Create Makefile
 
@@ -130,14 +132,29 @@ Rewrite `AGENTS.md` with project-specific content:
 
 Also update `CLAUDE.md` to match the same content.
 
-### Phase 10: Verify and Init Git
+### Phase 10: Verify, Conform, and Init Git
 
 Each verification step writes its output to `/tmp/hawk-init-phoenix-<step>.log` (with `2>&1`). Inspect with `rg -n 'error|warning|fail|FAIL' /tmp/hawk-init-phoenix-<step>.log | head -50` rather than streaming the raw output.
 
-Run these verification steps in order:
+Run these steps in order:
 
-1. `make up > /tmp/hawk-init-phoenix-up.log 2>&1` — all containers start, healthchecks pass
-2. `make setup > /tmp/hawk-init-phoenix-setup.log 2>&1` — DB created, migrations run, assets built
+1. `make up > /tmp/hawk-init-phoenix-up.log 2>&1` — all containers start, healthchecks pass.
+
+2. `make setup > /tmp/hawk-init-phoenix-setup.log 2>&1` — fetches deps, creates the DB, runs migrations, installs the tailwind/esbuild binaries.
+
+   **Known failure — asset binary download.** `mix tailwind.install` / `esbuild.install` fetch binaries via Erlang `:httpc`, which fails on IPv6-broken Docker networks (`{:failed_connect, [..., {:inet6, [:inet6], :nxdomain}]}`) even when `curl` inside the container works. If `make setup` fails here, pre-place the binaries — read the exact versions from `config/config.exs` (`config :tailwind, version:` and `config :esbuild, version:`):
+   ```bash
+   docker compose exec -e ERL_FLAGS="" app sh -c '
+     cd /app && mkdir -p _build
+     curl -sSL4 -o _build/tailwind-linux-x64-musl \
+       https://github.com/tailwindlabs/tailwindcss/releases/download/v<tailwind_version>/tailwindcss-linux-x64-musl
+     chmod +x _build/tailwind-linux-x64-musl
+     curl -sSL4 https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-<esbuild_version>.tgz \
+       | tar -xz -C /tmp
+     cp /tmp/package/bin/esbuild _build/esbuild-linux-x64 && chmod +x _build/esbuild-linux-x64'
+   ```
+   Then re-run `make setup` — `*.install --if-missing` detects the binaries and skips the download.
+
 3. `curl -s -o /dev/null -w "%{http_code}" http://localhost:<phoenix_port>` — expect `200` (output is tiny, inline)
 4. Verify BEAM console connectivity:
    ```bash
@@ -145,10 +162,31 @@ Run these verification steps in order:
      erl -noshell -sname probe -setcookie <app_name>_dev_cookie \
      -eval "case net_adm:ping('<app_name>@<app_name>') of pong -> io:format(\"connected~n\"), halt(0); pang -> io:format(\"failed~n\"), halt(1) end"
    ```
-5. `make check > /tmp/hawk-init-phoenix-check.log 2>&1` (format/compile/credo/test/dialyzer — dialyzer output is voluminous, redirect is mandatory).
-6. `git init && git add -A && git commit -m "feat: initialize <app_name> Phoenix project"`
+5. **Conform the generated scaffold to `credo --strict`.** `mix phx.new` emits framework boilerplate that does not satisfy the strict `.credo.exs` from Phase 7 — generated functions lack `@spec`s, and `<app_name>_web.ex` has an alias-ordering issue. Do **not** weaken the credo config to compensate; bring the generated files up to standard instead. This is near-mechanical. Run `make credo > /tmp/hawk-init-phoenix-credo.log 2>&1` for the exact current list (Phoenix's generated set shifts between versions — the live report is the source of truth, not this table), then resolve every issue:
 
-If any step fails, `rg` the relevant /tmp log for the actual error and fix before proceeding.
+   - **Missing `@spec` (`Credo.Check.Readability.Specs`)** — add a `@spec` directly above the function (above the *first* clause for multi-clause functions; after `@doc` if present). The shape is uniform per file category:
+
+     | Generated file(s) | Function shape | `@spec` to add |
+     |---|---|---|
+     | `core_components.ex`, `components/layouts.ex` | function components — `def name(assigns)` | `@spec name(map()) :: Phoenix.LiveView.Rendered.t()` |
+     | `<app_name>_web.ex` | 0-arity macro helpers (`controller`, `html`, `router`, `live_view`, …) | `@spec name() :: Macro.t()` |
+     | `controllers/page_controller.ex` | `def action(conn, _params)` | `@spec action(Plug.Conn.t(), map()) :: Plug.Conn.t()` |
+     | `controllers/error_html.ex` / `error_json.ex` | `def render(template, _assigns)` | check the body — `error_html` returns a `String.t()`, `error_json` a `map()` |
+     | `telemetry.ex` | `start_link/1`, `metrics/0` | `@spec start_link(keyword()) :: Supervisor.on_start()`, `@spec metrics() :: [Telemetry.Metrics.t()]` |
+     | `test/support/*_case.ex` | `setup_sandbox/1`, `errors_on/1`, … | write from the actual signature |
+
+     For anything the table does not cover, read the function body and write a precise spec — never a `term() :: term()` placeholder; that defeats the standard and can fail Dialyzer.
+
+   - **`Credo.Check.Readability.AliasOrder`** — generated `<app_name>_web.ex` lists `alias Phoenix.LiveView.JS` before `alias <AppModule>Web.Layouts`; swap the two `alias` lines into alphabetical order.
+
+   - **`Credo.Check.Design.AliasUsage`** — for each flagged fully-qualified nested module, add an `alias` at the top of the module and use the short name.
+
+   Re-run `make credo` until it reports **0 issues**, then `make format` (newly added specs and aliases may need reformatting).
+
+6. `make check > /tmp/hawk-init-phoenix-check.log 2>&1` (format/compile/credo/test/dialyzer — dialyzer output is voluminous, redirect is mandatory).
+7. `git init && git add -A && git commit -m "feat: initialize <app_name> Phoenix project"`
+
+If any step fails, `rg` the relevant /tmp log for the actual error and fix before proceeding. When a fix edits `Dockerfile.dev` or `docker-compose.yml`, recreate with `docker compose up -d --build --force-recreate` — a plain `docker compose up -d --build` may leave the old container running, so the change does not take effect.
 
 ---
 
@@ -161,6 +199,11 @@ If any step fails, `rg` the relevant /tmp log for the actual error and fix befor
 - **ALWAYS** use `-sname` (not `-name`) for dev clustering — simpler, no FQDN needed in local dev
 - **ALWAYS** use `fs_poll` backend for live reload in Docker on macOS — native filesystem events do not cross the VM boundary
 - **ALWAYS** use named volumes for `deps/` and `_build/` — bind-mounting these from macOS kills performance due to the osxfs/virtiofs overhead
+- **ALWAYS** mount the Postgres volume at `/var/lib/postgresql`, not `/var/lib/postgresql/data` — Postgres 18+ refuses to start with a `/data` mount
+- **ALWAYS** bake the distribution cookie into `/root/.erlang.cookie` in the Dockerfile — Elixir 1.19's CLI launcher does not reliably apply `-cookie` from ERL_FLAGS, so the cookie file is the only dependable source; `make console` depends on it
+- **ALWAYS** apply the `System.get_env("DB_HOST")` lookup to BOTH `config/dev.exs` and `config/test.exs` — the test Repo runs inside the container and must reach Postgres at host `db`
+- **NEVER** pin `MIX_ENV` in `docker-compose.yml` — mix defaults to `:dev` anyway, and pinning it forces `mix test` into `:dev`, skips `config/test.exs`, and breaks `make check`
+- **NEVER** weaken `.credo.exs` to make a freshly generated scaffold pass — the strict config is intentional; conform the generated framework code instead (Phase 10)
 - **NEVER** run `mix phx.new` in the target directory — generate in `/tmp` and rsync, preserving existing scaffold files (`.agents/`, `.claude/`, `.cursor/`, `.plans/`)
 - **NEVER** hardcode versions in Dockerfile or compose without verifying they exist first
 - The Makefile is the single entry point for all dev operations — every command should have a `make` target
@@ -200,6 +243,12 @@ RUN mix deps.get && mix deps.compile
 # Copy application code
 COPY . .
 
+# Stable Erlang distribution cookie. Elixir 1.19's CLI launcher does not
+# reliably apply `-cookie` passed through ERL_FLAGS, so without this the app
+# node uses a random per-container cookie and `make console` cannot attach.
+RUN printf '<app_name>_dev_cookie' > /root/.erlang.cookie && \
+    chmod 400 /root/.erlang.cookie
+
 # Default command
 CMD ["mix", "phx.server"]
 ```
@@ -221,10 +270,15 @@ services:
       - deps:/app/deps
       - build:/app/_build
     environment:
-      - MIX_ENV=dev
+      # Do NOT pin MIX_ENV here. mix defaults to :dev, so the server still runs
+      # in dev — but pinning it forces `mix test` into :dev too, which silently
+      # skips config/test.exs (the SQL Sandbox pool) and fails `make check`.
       - DB_HOST=db
       - PHX_HOST=localhost
-      - ERL_FLAGS=-cookie <app_name>_dev_cookie -sname <app_name>
+      # ERL_FLAGS sets only the node name. The distribution cookie comes from a
+      # baked .erlang.cookie file (see Dockerfile.dev) — Elixir 1.19's CLI
+      # launcher does not reliably apply `-cookie` passed via ERL_FLAGS.
+      - ERL_FLAGS=-sname <app_name>
     depends_on:
       db:
         condition: service_healthy
@@ -241,7 +295,10 @@ services:
     ports:
       - "${DB_PORT:-<db_port>}:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Postgres 18+ stores data in a major-version subdirectory and refuses to
+      # start if the volume is mounted at /data. Mount the parent directory.
+      # (See docker-library/postgres#1259.)
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
