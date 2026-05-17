@@ -8,6 +8,7 @@ description: Refactor existing code without changing behavior. Use when the user
 ## Process
 
 1. **Confirm the constraint** (ask if not provided):
+
    - Invariant: what must NOT change (behavior, API, tests passing)
    - Dimension (pick ONE):
      - Readability (clearer naming, simpler control flow)
@@ -20,10 +21,12 @@ description: Refactor existing code without changing behavior. Use when the user
    Always pick ONE dimension. Multi-axis refactors produce unreadable diffs and are impossible to review.
 
 2. **Load context**:
+
    - Read relevant standards from `.agents/standards/`
    - Read relevant common-mistakes from `.agents/common-mistakes/`
 
 3. **Outline the plan**:
+
    - Specific transformations to apply
    - Order (each step leaves the check command passing)
    - What the code will look like after (brief description, not full code)

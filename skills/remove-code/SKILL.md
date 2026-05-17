@@ -10,6 +10,7 @@ description: Remove a feature, delete dead code, drop a dependency, or simplify 
 1. **Understand the capability to remove** (not just files): What user-facing or internal capability is being removed?
 
 2. **Trace dependencies** before deleting anything:
+
    - All references to the functionality across the codebase
    - Code that ONLY exists to support this feature (can be fully deleted)
    - Code that is SHARED with other features (must be preserved)
@@ -18,6 +19,7 @@ description: Remove a feature, delete dead code, drop a dependency, or simplify 
 3. **Present the trace**: List everything to delete and everything to modify, grouped by file. Wait for user review.
 
 4. **Execute deletion**:
+
    - Fully dead files: delete
    - Partially dead files: remove only dead parts
    - Update imports, exports, index files

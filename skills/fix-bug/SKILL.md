@@ -1,6 +1,6 @@
 ---
 name: fix-bug
-description: Fix a bug via hypothesis-first root cause analysis. Generates ranked hypotheses BEFORE reading code; always considers online research at the hypothesis stage. Three-branch hypothesis revision (disconfirmed → next; new evidence → rewind; all exhausted → escalate). Requires a failing reproduction test before the fix and evidence-on-disk that it passes after. Layered retry ladder when checks fail — Stage 3 explicitly considers that the fix itself was wrong and reverts. Lazy patches (swallow-the-exception, mask-the-symptom, comment-instead-of-fix) are rejected. Design-level bugs route through plan skills. Use when the user reports a symptom and needs the cause found and fixed.
+description: Fix a bug via hypothesis-first root cause analysis. Use whenever the user reports a symptom and wants the cause found and fixed — phrasings like "it's broken", "this crashes", "intermittent failure", "stack trace says X", "works locally but fails in prod", "regression after the last deploy", "this used to work", "flaky test", "off-by-one somewhere", or "investigate why Y is happening". Also use when only a vague observation is provided ("seems wrong", "weird output"). Generates 5 ranked hypotheses BEFORE reading code; always considers online research at the hypothesis stage. Three-branch hypothesis revision (disconfirmed → next; new evidence → rewind; all 5 exhausted → escalate, never invent a 6th). Requires a failing reproduction test before the fix and evidence-on-disk that it passes after. Layered retry ladder — Stage 3 explicitly considers that the fix itself was wrong and reverts. Lazy patches (swallow-the-exception, mask-the-symptom, comment-instead-of-fix) are rejected. Do NOT use for refactor requests, planned feature work, code-quality cleanup, or design-level rewrites — those route to `refactor` / `plan-small` / `plan-large`. Design-level bugs surfaced mid-fix re-route through the plan skills.
 ---
 
 # Fix a Bug
@@ -77,7 +77,7 @@ If reproduction is genuinely infeasible after reasonable effort (race conditions
 
 No refactoring, no cleanup, no unrelated improvements. Address the root cause identified in Step 4, not the symptom in Step 1.
 
-**Reject the lazy patch.** A fix that silences the symptom without addressing the cause is worse than no fix — it makes the underlying issue invisible to the next developer. The following are lazy patches; if your candidate fix matches any of them, **revert and treat the bug as design-level (5g):**
+Reject the lazy patch. A fix that silences the symptom without addressing the cause is worse than no fix — it makes the underlying issue invisible to the next developer. The following are lazy patches; if your candidate fix matches any of them, revert and treat the bug as design-level (5g):
 
 - Wrapping the failing call in try/catch and swallowing the error.
 - Adding an early return that hides bad state from later code.
@@ -85,6 +85,8 @@ No refactoring, no cleanup, no unrelated improvements. Address the root cause id
 - Adding a comment that explains the bug instead of fixing it.
 - Catching an exception just to log it when the right behaviour is to propagate or handle.
 - Renaming a variable or restructuring whitespace in lieu of fixing the logic.
+
+If the fix is a one-liner, be suspicious. A one-liner that fixes a hard-to-reproduce symptom often masks a deeper design issue — surface that concern to the user even if you ship the one-liner. The right next step is sometimes "ship the patch, follow up with `/plan-small` for the underlying class of bug."
 
 #### 5d. Verify the test passes
 
@@ -116,7 +118,7 @@ Run the project's full check command (full test suite, type-check, lint — not 
 rg -n 'error|warning|fail|FAIL' /tmp/hawk-fix-bug-check.log | head -50
 ```
 
-If the check fails, escalate through the layered ladder (matches `implement-plan` Step 3.5):
+If the check fails, escalate through the layered ladder (matches `implement-plan` substep 3.5 — the retry ladder — with one bug-fix-specific divergence at Stage 3, called out below):
 
 - **Stage 1 (Level 0 retry):** Re-run; transient failures clear.
 - **Stage 2 (Level 0 fix):** Fix the immediate breakage caused by the fix.
@@ -142,23 +144,26 @@ If online research was load-bearing for the fix, capture the URL + brief in the 
 
 ## Committing the fix
 
-If a commit is being made, delegate to `implement-plan` Step 3.5 in full — stop-out edge cases (mid-rebase / mid-merge / unresolved conflicts), discovery-based staging, repo style mirroring via `git log -10 --oneline`, no `--amend`, no `--no-verify`, and **no AI attribution ever** (no `Co-Authored-By: Claude`, no `🤖`, no "Generated with Claude" line).
+If a commit is being made, delegate to `implement-plan` contract `CC-1` (Step 3.5 — Commit cadence) in full — stop-out edge cases (mid-rebase / mid-merge / unresolved conflicts), discovery-based staging, repo style mirroring via `git log -10 --oneline`, no `--amend`, no `--no-verify`, and no AI attribution ever (no `Co-Authored-By: Claude`, no `🤖`, no "Generated with Claude" line).
 
 The reproduction test goes in the **same commit** as the fix — they're one logical change, and you want future bisects to see the test arriving with the code it covers.
 
-## Rules
+## Rules — pointer index
 
-- **NEVER skip the hypothesis step** — it prevents anchoring on the wrong cause.
-- **ALWAYS consider online research at Step 3.** Apply when the heuristics match. Skipping research on a third-party-library bug is a recipe for hours of wrong-direction work.
-- **Hypothesis revision is structured.** Clean disconfirmation → next hypothesis. New evidence → rewind to Step 2. All 5 exhausted → escalate to the user; do not invent a 6th.
-- **The reproduction test must fail before the fix.** No reproduction = you don't understand the bug. For heisenbugs, surface non-reproducibility to the user before proceeding.
-- **Evidence on disk, not memory.** The `-pre.log` failing run and the `-post.log` passing run are both required to claim "fixed." Self-asserted verification is rejected.
-- **The fix is minimal** — no refactoring, no cleanup, no unrelated improvements. Design-level bugs route through plan skills instead.
-- **Reject the lazy patch.** A fix that silences the symptom without addressing the cause is worse than no fix. The enumerated patterns in 5c are not negotiable; matching any of them sends the bug to 5g.
-- **Bugs travel in packs** — check for the same pattern elsewhere with `rg`.
-- **If the fix is a one-liner, be suspicious.** A one-liner that fixes a hard-to-reproduce symptom often masks a deeper design issue. Surface the design concern even if you ship the one-liner.
-- **Layered retry ladder, not 3-attempt retry.** Stage 3 explicitly considers reverting the fix and returning to Step 4 — a fix that breaks unrelated tests is usually wrong.
-- **Full check command, not partial.** Regression-check is the whole suite, type-check, lint.
-- **Commit hygiene delegates to `implement-plan` Step 3.5.** No AI attribution. No `--no-verify`. Stop-out cases honored. Reproduction test commits with the fix.
-- After fixing, check `.agents/common-mistakes/` — if this bug pattern is new, add it (with research links if used).
+Anchors back to Process. The canonical statement of each rule lives in the section it points to; this index exists so callers can cite "rule X" without re-stating it.
+
+- Hypothesis-first, no code-reading until Step 2 — see §Step 2.
+- Online research considered on every bug; applied when heuristics match — see §Step 3.
+- Three-branch hypothesis revision; never invent a 6th — see §Step 4.
+- Reproduction test must fail pre-fix; heisenbugs surfaced before any fix attempt — see §5a, §5b.
+- Reject the lazy patch; one-liner suspicion; design-level bugs route through `/plan-small` or `/plan-large` — see §5c, §5g.
+- Evidence on disk (`-pre.log` failing, `-post.log` passing) — see §5d.
+- Bugs travel in packs; grep before closing — see §5e.
+- Layered retry ladder; Stage 3 reverts the fix; full check command, not partial — see §5f.
+- Commit hygiene delegates to `implement-plan` contract `CC-1` (Step 3.5 — Commit cadence): no `--amend`, no `--no-verify`, no AI attribution. Reproduction test commits with the fix — see §Committing the fix.
+- Update `.agents/common-mistakes/` if the pattern is novel — see §Step 6.
+
+Two cross-cutting rules that don't have a single Process anchor:
+
 - **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-fix-bug-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-fix-bug-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. See README → Big-output discipline.
+- **The fix is minimal.** No refactoring, no cleanup, no unrelated improvements anywhere in the process. If the urge appears, that's a separate task — surface it as a follow-up, don't fold it in.

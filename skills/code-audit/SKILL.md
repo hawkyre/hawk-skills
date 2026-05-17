@@ -1,17 +1,13 @@
 ---
 name: code-audit
-description: Audit code with parallel independent specialist subagents (logic bugs, security, simplification, online research, architecture). Each runs blind to the user's goal and the plan, so they evaluate code on its own merits — not by deferring to existing patterns. Use when reviewing a diff, PR, or specific code. Supports report mode (default, stops for approval) and cleanup mode (applies local FIXes, surfaces cross-cutting issues). For full-repo restructural changes, use the hardcore-audit skill instead.
+description: Audit code adversarially with parallel independent specialist subagents — logic bugs, security, simplification, online research, architecture. Each runs blind to the user's goal and the plan, so they evaluate code on its own merits, not by deferring to existing patterns. Use whenever the user says "audit this", "review my code", "do a code audit", "check this diff", "audit the cleanup", "review HEAD~3", or asks for a quality pass on a PR or specific files — even if the code "looks fine" and even if it just shipped. Also use as a post-implementation pass on your own work to surface lazy patches and cross-cutting issues. Supports report mode (default — emits FIX/NOTE/QUESTION and stops for approval) and cleanup mode (applies local FIXes, surfaces cross-cutting work). Do NOT use for full-repo restructural rewrites (use `code-audit-hardcore`), pre-merge PR review of someone else's work (use `review-large-pr`), plan critique (use `review-plan`), or prose review (use `human-prose`).
 ---
 
 # Code Audit
 
-The audit is a fan-out of independent specialists, each running as a fresh `audit-*` subagent. They work in parallel. None of them knows what feature the code is for, what plan generated it, or what the user is trying to ship. The orchestrator (this skill) merges their findings.
+The audit is a fan-out of independent specialists, each running as a fresh `audit-*` subagent in parallel. None of them knows what feature the code is for, what plan generated it, or what the user is trying to ship — the orchestrator (this skill) merges their findings. That blindness is the point: a reviewer who knows the goal rationalizes the code toward the goal.
 
-That blindness is the point. A reviewer who knows the goal will rationalize the code toward the goal. A reviewer who only has the diff and a narrow specialist brief is forced to evaluate the code on its own merits.
-
-The specialist briefs, anti-bias contracts, and output formats live in the agent files (`audit-triage`, `audit-logic`, `audit-security`, `audit-simplification`, `audit-research`, `audit-architecture`). This skill orchestrates — it does not redefine those briefs.
-
-This skill is the **quick-wins-and-surface-the-big-stuff** layer. Local FIXes get applied in cleanup mode; cross-cutting issues get surfaced as high-priority NOTEs and left for the user (or the hardcore-audit skill). For aggressive full-repo restructural changes, invoke the hardcore-audit skill explicitly.
+Specialist briefs, anti-bias contracts, and output formats live in the agent files (`audit-triage`, `audit-logic`, `audit-security`, `audit-simplification`, `audit-research`, `audit-architecture`). This skill orchestrates; it does not redefine those briefs.
 
 ## Posture — non-negotiable
 
@@ -35,6 +31,8 @@ A lazy FIX is worse than no FIX, because it makes the underlying issue invisible
 The goal is to leave the touched code **better than the average of its surroundings**, not to match the average.
 
 ## Modes
+
+This skill is the quick-wins-and-surface-the-big-stuff layer. Local FIXes get applied in cleanup mode; cross-cutting issues get surfaced as high-priority NOTEs and left for the user or for `code-audit-hardcore`.
 
 - **Report** (default) — Produce a merged FIX/NOTE/QUESTION report and **stop**. No edits. Wait for human approval. Use when reviewing code you didn't write, reviewing a PR, or auditing a concern.
 - **Cleanup** — Apply every local FIX that survives verification, then run the project's check command. Surface cross-cutting FIXes and plan-overrides as NOTEs without applying them — those are hardcore-audit territory. Use as a post-implementation quality pass on your own code.
@@ -150,7 +148,7 @@ Triage may pick any subset across these tiers. When `tier` is forced, the static
 
    - **Report mode:** emit the report (template below) and stop. No edits.
 
-   - **Cleanup mode:** before applying any FIX, check for stop-out states (matches `implement-plan` Step 3.5):
+   - **Cleanup mode:** before applying any FIX, check for stop-out states (matches `implement-plan` contract `CC-1` — Step 3.5 — Commit cadence):
 
      - Mid-rebase (`.git/rebase-merge/` or `.git/rebase-apply/` exists).
      - Mid-merge (`.git/MERGE_HEAD` exists).
@@ -231,20 +229,26 @@ In report mode, stop here. In cleanup mode, apply each `Scope: local` FIX (after
 
 ## Rules
 
-- **The repo is a starting point, not a baseline.** Existing patterns are observations, not defaults. Specialists' and the orchestrator's job is to evaluate quality, not to match style. Sheep are not welcome.
-- **The plan is not sacred.** If the audit reveals the plan's approach is suboptimal, surface as a QUESTION or `Scope: plan-override` FIX. Do not silently match a flawed plan.
-- **Lazy patches are downgraded.** A FIX that silences a symptom without addressing the cause becomes a NOTE. The Posture section enumerates the patterns; the verification gate enforces them.
-- **Every FIX must have a runnable Verify clause.** Findings without one are downgraded to NOTEs. This is the contract that `implement-plan-audited` relies on — keep it strict.
-- **Strength is tracked through merge.** When multiple specialists flag the same line, that's a stronger signal — the report carries `Strength: N/S` so prioritization is explicit.
-- **Cleanup mode applies local FIXes only.** `Scope: cross-cutting` and `Scope: plan-override` findings are surfaced, not auto-applied. Cross-cutting changes are the hardcore-audit skill's job.
-- **Behavior-changing FIXes are never silent.** Even when applied in cleanup mode, behavior changes are surfaced to the user.
-- **Cleanup mode honors stop-out cases** (mid-rebase / mid-merge / unresolved-conflict) before applying any FIX. Matches `implement-plan` Step 3.5.
-- **Layered retry ladder, not 3-attempt retry.** Each stage qualitatively different; Stage 3 explicitly considers reverting a false-positive FIX rather than fixing forward.
-- **Whichever specialists run, run in parallel** as fresh subagents. The subset is decided by triage (or the explicit `tier=`); the parallel-fresh-subagent shape never changes.
-- **Triage never reviews the code.** It only classifies scope and picks specialists. Its output schema is non-negotiable. The triage decision is internal — do not surface unless asked.
-- **Each specialist user prompt must be self-contained.** No shared chat history, no plan paths, no goal description. The agent's system prompt enforces the anti-bias contract; do not weaken it by pasting goal context.
-- **Verification gates are the orchestrator's job, not the specialists'.** Specialists propose; the orchestrator confirms before turning a FIX into an edit.
-- **An unverifiable recommendation is a NOTE, never a FIX.**
-- **Cleanup mode is not allowed to skip the check command** — a green build is the contract.
-- **No AI attribution** in any commit message that cleanup mode produces. No `Co-Authored-By: Claude`, no `🤖`, no "Generated with Claude". No `--no-verify`.
+Most rules are stated once in Posture or Process. This section is the index — follow the pointer for the canonical wording. Net-new rules (not stated elsewhere) are at the bottom.
+
+| Rule | Canonical location |
+| ---- | ------------------ |
+| Repo is a starting point, not a baseline | Posture |
+| Lazy patches downgraded to NOTE | Posture (5-item enumeration) |
+| Plan is not sacred — surface as QUESTION or `Scope: plan-override` | Posture + Process Step 6 |
+| Every FIX must include a runnable `Verify:` clause | Process Step 6 |
+| Strength `N/S` tracked through merge | Process Step 5 |
+| Cleanup applies `Scope: local` FIXes only | Process Step 6 + Step 7 |
+| Behavior-changing FIXes always surfaced (even when applied) | Process Step 6 |
+| Stop-out check before applying any FIX | Process Step 7 |
+| Layered retry ladder (not flat 3-attempt) | Process Step 7 |
+| Specialists run in parallel as fresh subagents | Process Step 4 |
+| Triage classifies; it never reviews code | Process Step 2 |
+| Each specialist prompt is self-contained — no goal context | Specialist user-prompt template |
+| Verification gates are the orchestrator's job, not the specialists' | Process Step 6 |
+| Cleanup must not skip the project check command | Process Step 7 |
+
+Net-new (not stated elsewhere):
+
+- **No AI attribution in commits that cleanup mode produces.** No `Co-Authored-By: Claude`, no `🤖`, no "Generated with Claude". No `--no-verify`.
 - **Big-output discipline.** Heavy command output (project check, full `git diff`, repo-wide search, long log, large fetch) goes to `/tmp/hawk-code-audit-<step>.log`, then `rg -n '<pattern>' /tmp/hawk-code-audit-<step>.log | head -50` extracts what you need. `Read` the file only with `offset`/`limit`. Specialist user prompts receive narrowed slices only.
