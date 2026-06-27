@@ -139,6 +139,7 @@ agent for their self-review pass — same shape, plan-shaped brief.
 | ------------------------------------------------ | -------------------------------------------------------------------------------- |
 | [`learn-system`](skills/learn-system/SKILL.md)   | Explore and explain a system — entry points, mental model, traced scenarios.     |
 | [`design-master`](skills/design-master/SKILL.md) | Design system from first principles — color, typography, spacing, motion.        |
+| [`write-agent`](skills/write-agent/SKILL.md)     | Scope an LLM agent so it only does what it can — prompt, tools, guardrails agree. Fixes off-topic drift, hallucinated capabilities, answer-from-memory. |
 | [`init-phoenix`](skills/init-phoenix/SKILL.md)   | Bootstrap a Docker-based Phoenix project with the BEAM/macOS gotchas pre-solved. |
 
 ### Git
