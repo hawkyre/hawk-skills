@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{Title}} — data model</title>
+  <link rel="stylesheet" href="../_assets/plan.css">
+  <link rel="stylesheet" href="../_assets/mockup.css">
+  <script src="../_assets/plan.js" defer></script>
+</head>
+<body>
+<div class="plan-wrap">
+
+  <header class="plan-head">
+    <h1>{{Title}}</h1>
+    <div class="plan-meta">slug: {{slug}} · data model</div>
+  </header>
+
+  <nav class="plan-nav" aria-label="plan documents">
+    <a href="overview.html">overview</a>
+    <a href="data-model.html" aria-current="page">data-model</a>
+    <a href="plan.html">plan</a>
+    <a href="decisions.html">decisions</a>
+    <a href="verification.html">verification</a>
+    <!-- <a href="contracts.html">contracts</a> only if APIs change -->
+  </nav>
+
+  <!-- Mandatory when the feature touches persistence. Stub unused sections as
+       "N/A — <reason>"; the reviewer rejects N/A on constraints or query patterns. -->
+
+  <section class="plan-section" data-section-id="entities">
+    <h2>Entities &amp; relationships</h2>
+    <pre>{{Mermaid ER diagram OR actual DDL — pick one, no prose}}</pre>
+  </section>
+
+  <section class="plan-section" data-section-id="constraints">
+    <h2>Constraints &amp; indexes</h2>
+    <ul>
+      <li><strong>Uniqueness:</strong> {{…}}</li>
+      <li><strong>Foreign keys:</strong> {{…}}</li>
+      <li><strong>NOT NULL:</strong> {{…}}</li>
+      <li><strong>Check constraints:</strong> {{…}}</li>
+      <li><strong>Indexes:</strong> {{…}}</li>
+    </ul>
+  </section>
+
+  <section class="plan-section" data-section-id="query-patterns">
+    <h2>Query patterns</h2>
+    <ul>
+      <li>READ: {{…}}</li>
+      <li>READ: {{…}}</li>
+      <li>WRITE: {{…}}</li>
+    </ul>
+  </section>
+
+  <section class="plan-section" data-section-id="sample-rows">
+    <h2>Sample rows</h2>
+    <pre>{{one realistic row per table}}</pre>
+  </section>
+
+  <section class="plan-section" data-section-id="migration">
+    <h2>Migration plan</h2>
+    <ol><li>{{ordered DDL; online vs offline; lock implications; duration}}</li></ol>
+  </section>
+
+  <section class="plan-section" data-section-id="bw-compat">
+    <h2>Backwards-compatibility window</h2>
+    <p>{{dual-write? view shim? rollback path during migration?}}</p>
+  </section>
+
+  <section class="plan-section" data-section-id="backfill">
+    <h2>Backfill</h2>
+    <p>{{required? batched? idempotent? ordering? duration? — or "N/A — reason"}}</p>
+  </section>
+
+  <section class="plan-section" data-section-id="rollback">
+    <h2>Rollback</h2>
+    <p>{{undo at each migration step}}</p>
+  </section>
+
+</div>
+</body>
+</html>

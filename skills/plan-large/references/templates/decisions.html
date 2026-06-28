@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{Title}} — decisions</title>
+  <link rel="stylesheet" href="../_assets/plan.css">
+  <link rel="stylesheet" href="../_assets/mockup.css">
+  <script src="../_assets/plan.js" defer></script>
+</head>
+<body>
+<div class="plan-wrap">
+
+  <header class="plan-head">
+    <h1>{{Title}}</h1>
+    <div class="plan-meta">slug: {{slug}} · decisions &amp; assumptions</div>
+  </header>
+
+  <nav class="plan-nav" aria-label="plan documents">
+    <a href="overview.html">overview</a>
+    <a href="data-model.html">data-model</a>
+    <a href="plan.html">plan</a>
+    <a href="decisions.html" aria-current="page">decisions</a>
+    <a href="verification.html">verification</a>
+    <!-- <a href="contracts.html">contracts</a> only if APIs change -->
+  </nav>
+
+  <section class="plan-section" data-section-id="decision-d1">
+    <h2>D1: {{title}}</h2>
+    <ul>
+      <li><strong>Context:</strong> {{what made this decision necessary}}</li>
+      <li><strong>Decision:</strong> {{what we chose}}</li>
+      <li><strong>Consequences:</strong> {{implications, accepted risks}}</li>
+      <li><strong>Alternatives rejected:</strong> {{strongest alternative and why it lost}}</li>
+    </ul>
+  </section>
+
+  <!-- one section per decision: data-section-id="decision-d2", etc. -->
+
+  <section class="plan-section" data-section-id="assumptions">
+    <h2>Assumptions resolved from code</h2>
+    <ul>
+      <li>{{decision}}. Source: code @ <code>{{file:line}}</code>.</li>
+      <li>{{decision}}. Source: user-confirmed.</li>
+      <li>{{decision}}. Source: default; revisit if {{X}}.</li>
+    </ul>
+  </section>
+
+  <section class="plan-section" data-section-id="open-questions">
+    <h2>Open questions (from review)</h2>
+    <ul><li>{{filled by the self-review pass; empty initially}}</li></ul>
+  </section>
+
+</div>
+</body>
+</html>

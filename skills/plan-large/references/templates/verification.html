@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{Title}} — verification</title>
+  <link rel="stylesheet" href="../_assets/plan.css">
+  <link rel="stylesheet" href="../_assets/mockup.css">
+  <script src="../_assets/plan.js" defer></script>
+</head>
+<body>
+<div class="plan-wrap">
+
+  <header class="plan-head">
+    <h1>{{Title}}</h1>
+    <div class="plan-meta">slug: {{slug}} · acceptance scenarios</div>
+  </header>
+
+  <nav class="plan-nav" aria-label="plan documents">
+    <a href="overview.html">overview</a>
+    <a href="data-model.html">data-model</a>
+    <a href="plan.html">plan</a>
+    <a href="decisions.html">decisions</a>
+    <a href="verification.html" aria-current="page">verification</a>
+    <!-- <a href="contracts.html">contracts</a> only if APIs change -->
+  </nav>
+
+  <!-- Use EARS (WHEN <event> THE SYSTEM SHALL <behaviour>) or GIVEN/WHEN/THEN.
+       Both grammars disqualify weasel words by leaving nowhere to put them. -->
+
+  <section class="plan-section" data-section-id="scenario-1">
+    <h2>Scenario 1: {{name}}</h2>
+    <pre>GIVEN {{setup}}
+WHEN  {{action}}
+THEN  {{observable outcome}}</pre>
+  </section>
+
+  <section class="plan-section" data-section-id="scenario-2">
+    <h2>Scenario 2: {{name}}</h2>
+    <pre>GIVEN {{…}}
+WHEN  {{…}}
+THEN  {{…}}</pre>
+  </section>
+
+  <section class="plan-section" data-section-id="cross-cutting">
+    <h2>Cross-cutting checks</h2>
+    <ul>
+      <li>After Inc {{N}}, manually walk {{flow}} and confirm {{observable}}.</li>
+      <li>Rollback from Inc {{N}} returns the system to its pre-change state.</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>

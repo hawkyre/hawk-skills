@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Example plan — design-system reference</title>
+  <!-- In-tree example links ../assets/ (source location). Runtime plans link
+       ../_assets/ instead. No JS here so it renders standalone with zero
+       failed requests; review badges below are static markup, not injected. -->
+  <link rel="stylesheet" href="../assets/plan.css">
+  <link rel="stylesheet" href="../assets/mockup.css">
+</head>
+<body>
+<div class="plan-wrap">
+
+  <header class="plan-head">
+    <h1>Example plan — design-system reference</h1>
+    <div class="plan-meta">slug: example · this file exercises every plan.css section and every .mock-* primitive</div>
+  </header>
+
+  <nav class="plan-nav" aria-label="plan documents">
+    <a href="#" aria-current="page">overview</a>
+    <a href="#">data-model</a>
+    <a href="#">plan</a>
+    <a href="#">decisions</a>
+    <a href="#">verification</a>
+  </nav>
+
+  <!-- progress bar (static here; driven by state.json at runtime) -->
+  <div class="progress">
+    <div class="progress-track">
+      <span class="seg--done"  style="width:50%"></span>
+      <span class="seg--prog"  style="width:16%"></span>
+      <span class="seg--block" style="width:0%"></span>
+    </div>
+    <div class="progress-label">3 / 6 increments done · 1 in progress</div>
+  </div>
+
+  <!-- a normal prose section, marked reviewed -->
+  <section class="plan-section" data-section-id="summary" data-review="reviewed">
+    <h2>Summary <span class="badge badge--reviewed">reviewed</span></h2>
+    <p>One paragraph of plain prose. The left rail and the badge show review
+      state. At runtime <code>plan.js</code> sets <code>data-review</code> and
+      injects a “mark reviewed” control top-right; in this static example the
+      state is hard-coded so the design renders with no server and no JS.</p>
+  </section>
+
+  <!-- a section flagged NEW since last review -->
+  <section class="plan-section" data-section-id="data-model" data-review="new">
+    <h2>Data model <span class="badge badge--new">new</span></h2>
+    <table class="grid">
+      <thead><tr><th>field</th><th>type</th><th>notes</th></tr></thead>
+      <tbody>
+        <tr><td>reviewedHash</td><td>string|null</td><td>12-hex; null = never reviewed</td></tr>
+        <tr><td>status</td><td>enum</td><td>pending · in-progress · done · blocked</td></tr>
+      </tbody>
+    </table>
+    <pre><code>{ "schemaVersion": 1, "review": { "summary": { "reviewedHash": "c1f0e4a9b3d2" } } }</code></pre>
+  </section>
+
+  <!-- a section flagged MODIFIED since last review -->
+  <section class="plan-section" data-section-id="notes" data-review="modified">
+    <h2>Decision <span class="badge badge--modified">modified</span></h2>
+    <p class="risk">Risk-styled callout: HTML is canonical; machine fields ride
+      on <code>data-*</code> attributes.</p>
+  </section>
+
+  <!-- increment cards: one UI-bearing (with mockup), one backend (no mockup) -->
+  <section class="plan-section increment" data-section-id="inc-1"
+           data-inc="1" data-size="S" data-depends=""
+           data-files="ui/settings.tsx"
+           data-done="WHEN the settings page renders THEN the form shows name + email">
+    <h3>Inc 1 — Settings page <span class="badge badge--size">S</span> <span class="badge badge--reviewed">reviewed</span></h3>
+    <dl>
+      <dt>depends</dt><dd>none</dd>
+      <dt>files</dt><dd><span class="path">ui/settings.tsx</span></dd>
+      <dt>done</dt><dd>WHEN the settings page renders THEN the form shows name + email</dd>
+    </dl>
+
+    <!-- a full screen mockup: sidebar + form + toast -->
+    <div class="mock-screen">
+      <div class="mock-bar">Acme
+        <nav class="mock-nav"><span>Home</span><span class="is-active">Settings</span><span>Help</span></nav>
+        <span class="mock-avatar"></span>
+      </div>
+      <div class="mock-layout">
+        <aside class="mock-sidebar">
+          <div class="mock-item">Profile</div>
+          <div class="mock-item is-active">Account</div>
+          <div class="mock-item">Billing</div>
+          <div class="mock-item">API keys</div>
+        </aside>
+        <div class="mock-main">
+          <div class="mock-tabs"><span class="is-active">General</span><span>Security</span></div>
+          <form class="mock-form" style="margin-top:.7rem">
+            <div><label>Name</label><span class="mock-input">Ada Lovelace</span></div>
+            <div><label>Email</label><span class="mock-input is-error">ada@</span>
+              <div class="field-error">Enter a valid email</div></div>
+            <div><label>Plan</label><span class="mock-dropdown">Pro</span></div>
+            <div class="mock-row"><span class="mock-btn shrink">Save</span><span class="mock-btn ghost shrink">Cancel</span></div>
+          </form>
+          <div class="mock-toast" style="margin-top:.8rem">Settings saved ✓</div>
+        </div>
+      </div>
+    </div>
+    <div class="mock-caption">mockup: settings screen — sidebar nav + validated form + save toast</div>
+  </section>
+
+  <section class="plan-section increment" data-section-id="inc-2"
+           data-inc="2" data-size="M" data-depends="1"
+           data-files="api/settings.ts,db/migrations/003.sql"
+           data-done="WHEN PATCH /settings THEN 200 and the row is updated">
+    <h3>Inc 2 — Settings API <span class="badge badge--size">M</span></h3>
+    <dl>
+      <dt>depends</dt><dd>1</dd>
+      <dt>files</dt><dd><span class="path">api/settings.ts</span>, <span class="path">db/migrations/003.sql</span></dd>
+      <dt>done</dt><dd>WHEN PATCH /settings THEN 200 and the row is updated</dd>
+    </dl>
+    <p class="muted">Backend-only increment — no mockup, per the mockup-usage gate.</p>
+  </section>
+
+  <!-- a gallery section exercising the remaining primitives -->
+  <section class="plan-section" data-section-id="primitives" data-review="reviewed">
+    <h2>Primitive gallery</h2>
+
+    <div class="mock-row" style="align-items:stretch">
+      <div class="mock-card">
+        <span class="mock-title">Card</span>
+        <span class="mock-text w-100"></span><span class="mock-text w-75"></span>
+        <span class="mock-btn">Action</span>
+      </div>
+      <div class="mock-list">
+        <div class="mock-item"><span class="mock-avatar sq"></span><span class="mock-text w-50"></span><span class="mock-badge">3</span></div>
+        <div class="mock-item"><span class="mock-avatar sq"></span><span class="mock-text w-75"></span></div>
+        <div class="mock-item"><span class="mock-avatar sq"></span><span class="mock-text w-50"></span></div>
+      </div>
+    </div>
+
+    <table class="mock-table" style="margin-top:.8rem">
+      <thead><tr><th>name</th><th>status</th><th>updated</th></tr></thead>
+      <tbody>
+        <tr><td>alpha</td><td>done</td><td>2d</td></tr>
+        <tr><td>beta</td><td>pending</td><td>5h</td></tr>
+      </tbody>
+    </table>
+
+    <div class="mock-row" style="margin-top:.8rem; align-items:flex-end">
+      <div class="mock-chart"><span class="bar" style="height:40%"></span><span class="bar" style="height:70%"></span><span class="bar" style="height:55%"></span><span class="bar" style="height:90%"></span><span class="bar" style="height:30%"></span></div>
+      <div class="mock-modal-scrim shrink" style="flex:1">
+        <div class="mock-modal">
+          <span class="mock-title">Delete project?</span>
+          <span class="mock-text w-100"></span>
+          <div class="mock-row"><span class="mock-btn ghost shrink">Cancel</span><span class="mock-btn shrink">Delete</span></div>
+        </div>
+      </div>
+    </div>
+
+    <p style="margin-top:.8rem"><span class="mock-note">annotation: this callout marks intent on a mockup</span></p>
+  </section>
+
+  <footer class="tag-offline">Rendered offline — no network, no JS, no CDN. Tracking features activate when served by serve.js.</footer>
+
+</div>
+</body>
+</html>

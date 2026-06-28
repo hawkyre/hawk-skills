@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{Title}} — overview</title>
+  <link rel="stylesheet" href="../_assets/plan.css">
+  <link rel="stylesheet" href="../_assets/mockup.css">
+  <script src="../_assets/plan.js" defer></script>
+</head>
+<body>
+<div class="plan-wrap">
+
+  <header class="plan-head">
+    <h1>{{Title}}</h1>
+    <div class="plan-meta">slug: {{slug}} · overview</div>
+  </header>
+
+  <nav class="plan-nav" aria-label="plan documents">
+    <a href="overview.html" aria-current="page">overview</a>
+    <a href="data-model.html">data-model</a>
+    <a href="plan.html">plan</a>
+    <a href="decisions.html">decisions</a>
+    <a href="verification.html">verification</a>
+    <!-- <a href="contracts.html">contracts</a> only if APIs change -->
+  </nav>
+
+  <!-- progress bar populated by plan.js from state.json; static fallback text -->
+  <div class="progress" data-progress>
+    <div class="progress-track"><span class="seg--done" style="width:0%"></span></div>
+    <div class="progress-label">— increments tracked once serve.js is running —</div>
+  </div>
+
+  <section class="plan-section" data-section-id="what-why">
+    <h2>What &amp; why</h2>
+    <p>{{One paragraph: problem, approach, scope. A non-implementer should finish
+      this knowing whether to dig further.}}</p>
+  </section>
+
+  <section class="plan-section" data-section-id="dag">
+    <h2>Increment DAG</h2>
+    <ul>
+      <li>Inc 1 — {{title}} ({{S|M|L}}) — depends: none — unblocks: {{…}}</li>
+      <li>Inc 2 — {{title}} ({{S|M|L}}) — depends: 1 — unblocks: {{…}}</li>
+      <!-- … -->
+    </ul>
+    <pre>{{optional ASCII diagram if the DAG isn't linear}}</pre>
+  </section>
+
+  <section class="plan-section" data-section-id="risks">
+    <h2>Top 3 risks</h2>
+    <ul>
+      <li class="risk">{{risk — one sentence — mitigation or "accept"}}</li>
+      <li class="risk">{{risk}}</li>
+      <li class="risk">{{risk}}</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>

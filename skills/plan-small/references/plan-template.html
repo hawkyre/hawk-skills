@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{Title}} — plan</title>
+  <!-- plan-small is a single-PR plan: one document. Assets are shared at
+       .plans/_assets/ (copied once per repo). -->
+  <link rel="stylesheet" href="../_assets/plan.css">
+  <link rel="stylesheet" href="../_assets/mockup.css">
+  <script src="../_assets/plan.js" defer></script>
+</head>
+<body>
+<div class="plan-wrap">
+
+  <header class="plan-head">
+    <h1>{{Title}}</h1>
+    <div class="plan-meta">slug: {{slug}} · single-PR plan</div>
+  </header>
+
+  <section class="plan-section" data-section-id="summary">
+    <h2>Summary</h2>
+    <p>{{One paragraph: problem, approach, what ships. A reviewer reads just this
+      and knows whether to dig in.}}</p>
+  </section>
+
+  <!-- Include ONLY when the PR touches persistence; delete otherwise.
+       Every bullet mandatory when present — "N/A — <reason>" allowed, omission not. -->
+  <section class="plan-section" data-section-id="data-model">
+    <h2>Data model changes</h2>
+    <ul>
+      <li><strong>Change:</strong> {{DDL or one-sentence description}}</li>
+      <li><strong>Migration:</strong> {{online with existing tooling / offline / N/A}}</li>
+      <li><strong>Constraints/indexes affected:</strong> {{list, or "none"}}</li>
+      <li><strong>Query patterns affected:</strong> {{reads/writes whose plan changes}}</li>
+      <li><strong>Backwards compat:</strong> {{how old code keeps working during deploy}}</li>
+      <li><strong>Backfill:</strong> {{required? batched? rows}} or "N/A — {{reason}}"</li>
+      <li><strong>Rollback:</strong> {{one-line undo path}}</li>
+    </ul>
+  </section>
+
+  <section class="plan-section" data-section-id="files">
+    <h2>Files to touch</h2>
+    <h3><span class="path">{{path/to/file.ext}}</span></h3>
+    <p>{{One to three sentences: what changes and why. Add key signatures inline
+      only for genuinely novel files.}}</p>
+    <h3><span class="path">{{path/to/other.ext}}</span></h3>
+    <p>{{…}}</p>
+
+    <!-- If the change renders/changes UI, sketch it here with .mock-* primitives:
+    <div class="mock-screen"> … </div>
+    <div class="mock-caption">mockup: {{one-line description}}</div>
+    -->
+  </section>
+
+  <section class="plan-section" data-section-id="edge-cases">
+    <h2>Edge cases</h2>
+    <ul>
+      <li>{{case}}: {{expected behaviour}}</li>
+    </ul>
+  </section>
+
+  <section class="plan-section" data-section-id="verification">
+    <h2>Verification</h2>
+    <ul>
+      <li><strong>Run:</strong> {{check command}}</li>
+      <li><strong>Tests to add/update:</strong> {{names + what they assert}}</li>
+      <li><strong>Manual:</strong> {{browser steps, API calls, etc.}}</li>
+      <li><strong>Done when:</strong> WHEN {{event}} THEN {{observable outcome}}</li>
+    </ul>
+  </section>
+
+  <section class="plan-section" data-section-id="decisions">
+    <h2>Decisions and assumptions</h2>
+    <ul>
+      <li>Decision: {{decision}}. Source: code @ {{file:line}} | user-confirmed | default.</li>
+      <li>Assumption: {{assumption}}. Source: {{…}}</li>
+    </ul>
+  </section>
+
+  <section class="plan-section" data-section-id="standards">
+    <h2>Standards / common-mistakes referenced</h2>
+    <ul><li>{{path}} — why it applies</li></ul>
+  </section>
+
+  <section class="plan-section" data-section-id="scope">
+    <h2>Estimated scope</h2>
+    <p><span class="badge badge--size">{{S | M | L}}</span></p>
+  </section>
+
+  <section class="plan-section" data-section-id="open-questions">
+    <h2>Open questions (CONSIDER from review)</h2>
+    <ul><li>{{filled by the self-review pass; empty initially}}</li></ul>
+  </section>
+
+</div>
+</body>
+</html>

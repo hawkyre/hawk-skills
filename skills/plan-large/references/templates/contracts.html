@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{Title}} — contracts</title>
+  <link rel="stylesheet" href="../_assets/plan.css">
+  <link rel="stylesheet" href="../_assets/mockup.css">
+  <script src="../_assets/plan.js" defer></script>
+</head>
+<body>
+<div class="plan-wrap">
+
+  <header class="plan-head">
+    <h1>{{Title}}</h1>
+    <div class="plan-meta">slug: {{slug}} · contracts (new or changed APIs)</div>
+  </header>
+
+  <nav class="plan-nav" aria-label="plan documents">
+    <a href="overview.html">overview</a>
+    <a href="data-model.html">data-model</a>
+    <a href="plan.html">plan</a>
+    <a href="decisions.html">decisions</a>
+    <a href="verification.html">verification</a>
+    <a href="contracts.html" aria-current="page">contracts</a>
+  </nav>
+
+  <!-- Only ship this doc when the feature exposes new or changed APIs.
+       Delete it if there are no contract changes. -->
+
+  <section class="plan-section" data-section-id="contract-1">
+    <h2>{{Endpoint / RPC / event name}}</h2>
+    <ul>
+      <li><strong>Path / method:</strong> <code>{{GET /api/v1/widgets}}</code></li>
+      <li><strong>Request shape:</strong> <code>{{ … }}</code></li>
+      <li><strong>Response shape:</strong> <code>{{ … }}</code></li>
+      <li><strong>Error codes:</strong> {{400 (…), 404 (…), 409 (…)}}</li>
+      <li><strong>Auth:</strong> {{session / API key / scope}}</li>
+      <li><strong>Rate limit:</strong> {{quota, if any}}</li>
+      <li><strong>Backwards compat:</strong> {{new / additive / breaking + migration window}}</li>
+    </ul>
+  </section>
+
+  <!-- one section per contract: data-section-id="contract-2", etc. -->
+
+</div>
+</body>
+</html>

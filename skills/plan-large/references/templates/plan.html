@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{Title}} — plan</title>
+  <link rel="stylesheet" href="../_assets/plan.css">
+  <link rel="stylesheet" href="../_assets/mockup.css">
+  <script src="../_assets/plan.js" defer></script>
+</head>
+<body>
+<div class="plan-wrap">
+
+  <header class="plan-head">
+    <h1>{{Title}}</h1>
+    <div class="plan-meta">slug: {{slug}} · implementation plan</div>
+  </header>
+
+  <nav class="plan-nav" aria-label="plan documents">
+    <a href="overview.html">overview</a>
+    <a href="data-model.html">data-model</a>
+    <a href="plan.html" aria-current="page">plan</a>
+    <a href="decisions.html">decisions</a>
+    <a href="verification.html">verification</a>
+    <!-- <a href="contracts.html">contracts</a> only if APIs change -->
+  </nav>
+
+  <div class="progress" data-progress>
+    <div class="progress-track"><span class="seg--done" style="width:0%"></span></div>
+    <div class="progress-label">— run serve.js for live status —</div>
+  </div>
+
+  <!-- One <section class="increment"> per increment. Keep prose tight; the
+       implementer opens the code for signatures. Required data-* attributes:
+       data-inc, data-size, data-depends, data-files, data-done (see contract.md).
+       Add a .mock-* wireframe ONLY when the increment renders/changes UI. -->
+
+  <section class="plan-section increment" data-section-id="inc-1"
+           data-inc="1" data-size="{{S|M|L}}" data-depends=""
+           data-files="{{path/a,path/b}}"
+           data-done="{{WHEN &lt;event&gt; THEN &lt;observable outcome&gt;}}">
+    <h3>Inc 1 — {{title}} <span class="badge badge--size">{{S|M|L}}</span></h3>
+    <dl>
+      <dt>depends</dt><dd>none</dd>
+      <dt>unblocks</dt><dd>{{…}}</dd>
+      <dt>files</dt><dd><span class="path">{{path/a}}</span>, <span class="path">{{path/b}}</span></dd>
+      <dt>done</dt><dd>{{WHEN &lt;event&gt; THEN &lt;observable outcome&gt;}}</dd>
+      <dt>risks</dt><dd>{{one sentence; or "none beyond global"}}</dd>
+    </dl>
+    <!-- optional mockup for UI increments:
+    <div class="mock-screen"> … </div>
+    <div class="mock-caption">mockup: {{one-line description}}</div>
+    -->
+  </section>
+
+  <section class="plan-section increment" data-section-id="inc-2"
+           data-inc="2" data-size="{{S|M|L}}" data-depends="1"
+           data-files="{{…}}"
+           data-done="{{…}}">
+    <h3>Inc 2 — {{title}} <span class="badge badge--size">{{S|M|L}}</span></h3>
+    <dl>
+      <dt>depends</dt><dd>1</dd>
+      <dt>unblocks</dt><dd>{{…}}</dd>
+      <dt>files</dt><dd><span class="path">{{…}}</span></dd>
+      <dt>done</dt><dd>{{…}}</dd>
+      <dt>risks</dt><dd>{{…}}</dd>
+    </dl>
+  </section>
+
+  <!-- … more increments … -->
+
+</div>
+</body>
+</html>
