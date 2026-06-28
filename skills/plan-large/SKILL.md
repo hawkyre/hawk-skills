@@ -1,20 +1,20 @@
 ---
 name: plan-large
-description: Plan a multi-PR feature, migration, or architectural change before writing code. Writes a `.plans/<slug>/` directory — a 1-page `overview.md` for human review, a mandatory `data-model.md` that locks the schema before anything else, a terse `plan.md` of dependency-ordered increments, an ADR-style `decisions.md`, and a `verification.md` acceptance script. Use whenever the user says "plan this feature", "scope out the migration", "/plan-large", "architect this rollout", "I need a plan covering schema and API", "design this across multiple PRs", or "break this work up". Also use whenever the work touches a database migration, even if it's only two PRs — schema-first is the gate. Runs a blind self-review subagent before presenting. Do NOT use for single-PR changes — bail to `plan-small` at Step 0. Do NOT use to start implementing — that's `/implement-plan` after the plan is approved.
+description: Plan a multi-PR feature, migration, or architectural change before writing code. Writes a `.plans/<slug>/` directory of HTML documents (with inline UI mockups and a review-tracking layer) — a 1-page `overview.html` for human review, a mandatory `data-model.html` that locks the schema before anything else, a terse `plan.html` of dependency-ordered increments, an ADR-style `decisions.html`, and a `verification.html` acceptance script. Use whenever the user says "plan this feature", "scope out the migration", "/plan-large", "architect this rollout", "I need a plan covering schema and API", "design this across multiple PRs", or "break this work up". Also use whenever the work touches a database migration, even if it's only two PRs — schema-first is the gate. Runs a blind self-review subagent before presenting. Do NOT use for single-PR changes — bail to `plan-small` at Step 0. Do NOT use to start implementing — that's `/implement-plan` after the plan is approved.
 ---
 
 # Plan a Large Feature
 
-A large plan is a DAG of increments, each `plan-small`-sized. Output is a `.plans/<slug>/` directory whose files have specialised jobs:
+A large plan is a DAG of increments, each `plan-small`-sized. Output is a `.plans/<slug>/` directory of **HTML** documents (canonical format — they render with mockups and review-tracking through the shared design system at `.plans/_assets/`). Each file has a specialised job:
 
-- `overview.md` — one page; what a human reviewer reads first.
-- `data-model.md` — schema, migrations, rollback. Mandatory when persistence is touched.
-- `plan.md` — tight increment list with explicit dependencies and acceptance checks.
-- `decisions.md` — ADR-lite log of architectural decisions and assumptions.
-- `verification.md` — end-to-end acceptance scenarios a human runs.
-- `contracts.md` — optional; only when the feature exposes new or changed APIs.
+- `overview.html` — one page; what a human reviewer reads first.
+- `data-model.html` — schema, migrations, rollback. Mandatory when persistence is touched.
+- `plan.html` — tight increment list with explicit dependencies and acceptance checks; machine fields ride on `data-*` attributes (see `references/contract.md`).
+- `decisions.html` — ADR-lite log of architectural decisions and assumptions.
+- `verification.html` — end-to-end acceptance scenarios a human runs.
+- `contracts.html` — optional; only when the feature exposes new or changed APIs.
 
-A reviewer asking "is the schema right?" opens `data-model.md` and is done in 30 seconds. That's the point of the split.
+A reviewer asking "is the schema right?" opens `data-model.html` and is done in 30 seconds. That's the point of the split. HTML is canonical because plans embed UI mockups inline and carry a lightweight review-tracking layer; the document contract that keeps them machine-readable for `/implement-plan` lives in `references/contract.md`.
 
 ## Process
 
@@ -70,13 +70,13 @@ Stress-test the design before writing anything:
 - Gaps: migration, backwards compat, observability, rollback, backfill, feature flag, telemetry.
 - What to prototype first to de-risk the rest.
 
-Alternatives don't land in the plan; the chosen approach's rationale and accepted risks do (in `decisions.md`).
+Alternatives don't land in the plan; the chosen approach's rationale and accepted risks do (in `decisions.html`).
 
 ### Step 5 — Lock the data model
 
-Write `data-model.md` before drawing the increment DAG. If the feature touches persistence at all, this file is mandatory. Stub unused sections as "N/A — <one-sentence reason>" rather than omitting them — writing "N/A" forces the decision instead of leaving it forgotten. The reviewer rejects "N/A" on constraints or query patterns; those sections must be concrete.
+Write `data-model.html` before drawing the increment DAG. If the feature touches persistence at all, this file is mandatory. Stub unused sections as "N/A — <one-sentence reason>" rather than omitting them — writing "N/A" forces the decision instead of leaving it forgotten. The reviewer rejects "N/A" on constraints or query patterns; those sections must be concrete.
 
-Required sections (full template at `references/templates/data-model.md`):
+Required sections (full template at `references/templates/data-model.html`):
 
 1. **Entities & relationships** — Mermaid ER or DDL. Pick one and commit.
 2. **Constraints & indexes** — uniqueness, FKs, NOT NULL, check constraints, indexes.
@@ -87,7 +87,7 @@ Required sections (full template at `references/templates/data-model.md`):
 7. **Backfill** — required? batched? idempotent? ordering? duration?
 8. **Rollback** — undo at each migration step.
 
-If Step 6 reveals a schema gap, return here and update — `data-model.md` is canonical for schema decisions throughout.
+If Step 6 reveals a schema gap, return here and update — `data-model.html` is canonical for schema decisions throughout.
 
 ### Step 6 — Decompose into ordered increments
 
@@ -101,22 +101,42 @@ Each increment must:
 
 No file-by-file specs unless the increment introduces genuinely novel architecture. For 9 of 10 increments, the implementer in a fresh session needs only: dependencies, file list, and a testable done check. They open the actual code for signatures.
 
-For the rare increment that does need a deep spec (new module structure, non-obvious integration, novel error model), drop the detail in a sibling `inc-<N>-notes.md` and reference it from the increment block. Keeps `plan.md` scannable.
+For the rare increment that does need a deep spec (new module structure, non-obvious integration, novel error model), drop the detail in a sibling `inc-<N>-notes.md` and reference it from the increment block. Keeps `plan.html` scannable.
 
 ### Step 7 — Write the files
 
 Slug: kebab-case, ≤ 4 words. If `.plans/<slug>/` exists, append `-2`, `-3`.
 
-Templates live at `references/templates/`:
+**Bootstrap the shared assets first.** If `.plans/_assets/` does not exist, copy
+`plan.css`, `mockup.css`, `plan.js`, and `serve.js` from this skill's
+`references/assets/` into `.plans/_assets/`. If it exists, leave it untouched —
+the user may have tweaked the styles.
 
-- `overview.md` — ≤ 1 page (~500 words).
-- `plan.md` — one block per increment, ≤ 10 lines each.
-- `data-model.md` — eight sections from Step 5.
-- `decisions.md` — ADR-lite plus sourced assumption log.
-- `verification.md` — GIVEN/WHEN/THEN or EARS acceptance scenarios.
-- `contracts.md` — only if APIs change.
+HTML templates live at `references/templates/`:
 
-Copy templates and fill. EARS and GIVEN/WHEN/THEN are required for done criteria — both grammars disqualify weasel words by leaving nowhere to put them.
+- `overview.html` — ≤ 1 page (~500 words).
+- `plan.html` — one `<section class="increment">` per increment, ≤ 10 lines of prose each.
+- `data-model.html` — eight sections from Step 5.
+- `decisions.html` — ADR-lite plus sourced assumption log.
+- `verification.html` — GIVEN/WHEN/THEN or EARS acceptance scenarios.
+- `contracts.html` — only if APIs change.
+
+Copy each template to `.plans/<slug>/<name>.html` and fill it. Authoring rules,
+all in `references/contract.md`:
+
+- Keep every `data-section-id`; give each increment its required `data-*`
+  attributes (`data-inc`, `data-size`, `data-depends`, `data-files`, `data-done`)
+  — comma-lists with no surrounding whitespace.
+- **HTML-encode all filled content** — `&`→`&amp;`, `<`→`&lt;`, `>`→`&gt;`, and
+  `"`→`&quot;` inside attributes. Code artifacts (`Promise<User>`, `x <> y`) and
+  user text break the markup or open an XSS hole otherwise. Bare `<word>` tokens
+  in placeholders are grammar docs, never literal output. See `references/contract.md`.
+- **Mockups:** draw a `.mock-*` wireframe (vocabulary in `assets/mockup.css`)
+  **only for an increment that renders or changes UI**. Backend / schema / CLI
+  increments get no mockup — a wireframe of nothing is noise.
+- Don't inline `<style>`; all styling comes from the shared assets.
+- EARS and GIVEN/WHEN/THEN are required for done criteria — both grammars
+  disqualify weasel words by leaving nowhere to put them.
 
 ### Step 8 — Self-review
 
@@ -132,23 +152,23 @@ Where `<USER PROMPT>` is:
 ## Posture
 plan-large
 
-## Plan files
-### overview.md
+## Plan files (reviewer view — HTML, mockups elided)
+### overview.html
 {{full content}}
 
-### data-model.md
+### data-model.html
 {{full content}}
 
-### plan.md
+### plan.html
 {{full content}}
 
-### decisions.md
+### decisions.html
 {{full content}}
 
-### verification.md
+### verification.html
 {{full content}}
 
-### contracts.md (if present)
+### contracts.html (if present)
 {{full content}}
 
 ## Standards
@@ -158,32 +178,38 @@ plan-large
 {{full content of relevant .agents/common-mistakes/ files}}
 ```
 
-The reviewer is blind to `.plans/` — paste contents inline.
+The reviewer is blind to `.plans/` — paste contents inline. Paste the **reviewer
+view**: keep all prose, headings, and `data-*` attributes verbatim, but replace
+each `<div class="mock-*">…</div>` subtree with a one-line placeholder comment
+(`<!-- mockup: <description> -->`). Mockup markup is token-heavy and the reviewer
+critiques content, not pixels (see `references/contract.md`).
 
 ### Step 9 — Apply findings
 
-Apply MUST-FIX directly. Apply SHOULD-FIX unless it conflicts with a Step 3 decision (downgrade to CONSIDER and flag). Append CONSIDER items to a new `## Open questions (from review)` section at the bottom of `decisions.md`.
+Apply MUST-FIX directly. Apply SHOULD-FIX unless it conflicts with a Step 3 decision (downgrade to CONSIDER and flag). Append CONSIDER items to the `open-questions` section of `decisions.html`.
 
-If any MUST-FIX changes the DAG, update **both** `plan.md` and the DAG block in `overview.md` — they must stay consistent. Edit them as a pair, not sequentially with a check-in between.
+If any MUST-FIX changes the DAG, update **both** `plan.html` and the DAG block in `overview.html` — they must stay consistent. Edit them as a pair, not sequentially with a check-in between.
 
 ### Step 10 — Present
 
 Print, in order:
 
 - The plan directory path.
-- The contents of `overview.md`, read back from the file (canonical).
+- The text of `overview.html`'s `what-why` and `dag` sections, read back from the file (canonical).
 - A one-line pointer to each other file with what it contains.
 - The CONSIDER items appended in Step 9.
+- The review-tracking hint: `node .plans/_assets/serve.js`, then open the printed
+  URL to review with NEW / MODIFIED / REVIEWED tracking and live progress.
 
 Do not start implementing. Suggest `/implement-plan` (or `/implement-plan-audited mode=auto` for hours-long unattended runs).
 
 ## Failure modes
 
-- **`data-model.md` becomes "N/A" all the way down.** That's the lazy-patch case. If a feature touches persistence at all, entities, constraints, query patterns, and migration must be concrete. "N/A" on rollback or backfill is sometimes legitimate; "N/A" on constraints or query patterns is the model dodging — the reviewer will catch it as MUST-FIX.
-- **`plan.md` DAG and `overview.md` DAG drift.** This will happen after Step 9 if you edit them sequentially. Always edit as a pair. The reviewer's DAG-correctness check spots drift but only if it spots it.
+- **`data-model.html` becomes "N/A" all the way down.** That's the lazy-patch case. If a feature touches persistence at all, entities, constraints, query patterns, and migration must be concrete. "N/A" on rollback or backfill is sometimes legitimate; "N/A" on constraints or query patterns is the model dodging — the reviewer will catch it as MUST-FIX.
+- **`plan.html` DAG and `overview.html` DAG drift.** This will happen after Step 9 if you edit them sequentially. Always edit as a pair. The reviewer's DAG-correctness check spots drift but only if it spots it.
 - **A reviewer pass keeps changing the DAG.** Stop and surface the conflict to the user — usually a Step 3 schema decision and a Step 6 increment ordering are incompatible. Re-running review won't resolve it.
-- **An increment grows past 10 lines.** Either split it or create a sibling `inc-<N>-notes.md` — never inline a deep spec into `plan.md`.
-- **Step 6 reveals a schema gap.** Return to Step 5 and update `data-model.md` before continuing. Don't paper over it in the increment block; the gap will surface again at implementation time when it's more expensive.
+- **An increment grows past 10 lines.** Either split it or create a sibling `inc-<N>-notes.md` — never inline a deep spec into `plan.html`.
+- **Step 6 reveals a schema gap.** Return to Step 5 and update `data-model.html` before continuing. Don't paper over it in the increment block; the gap will surface again at implementation time when it's more expensive.
 - **The orchestrator says "I'll come back to this section" and writes a stub.** Stubs in plan files survive review because they look like template scaffolding. Either fill it or delete the section.
 
 ## Big-output discipline

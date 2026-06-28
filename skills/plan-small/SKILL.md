@@ -1,11 +1,11 @@
 ---
 name: plan-small
-description: Plan a single-PR change end-to-end before writing code. Writes a terse `.plans/<slug>/plan.md` covering files to touch, data-model changes, edge cases, verification, and decisions/assumptions sourced to code or user. Use whenever the user says "plan this", "scope this out", "write up a plan for X", "/plan-small", "let's plan the new flag", or "plan before we start". Also use whenever the user describes a small feature without explicitly asking to plan — propose a plan before coding. Asks only what code can't answer (in-repo PRDs count), surfaces planned assumptions alongside questions, then runs a blind self-review subagent before presenting. Do NOT use for multi-PR work, schema migrations beyond adding a nullable column, or sequenced increments — bail to `plan-large` at Step 0. Do NOT use to start implementing — that's `/implement-plan` after the plan is approved.
+description: Plan a single-PR change end-to-end before writing code. Writes a terse `.plans/<slug>/plan.html` (HTML, with inline UI mockups where a screen changes, rendered through the shared design system) covering files to touch, data-model changes, edge cases, verification, and decisions/assumptions sourced to code or user. Use whenever the user says "plan this", "scope this out", "write up a plan for X", "/plan-small", "let's plan the new flag", or "plan before we start". Also use whenever the user describes a small feature without explicitly asking to plan — propose a plan before coding. Asks only what code can't answer (in-repo PRDs count), surfaces planned assumptions alongside questions, then runs a blind self-review subagent before presenting. Do NOT use for multi-PR work, schema migrations beyond adding a nullable column, or sequenced increments — bail to `plan-large` at Step 0. Do NOT use to start implementing — that's `/implement-plan` after the plan is approved.
 ---
 
 # Plan a Small Feature
 
-Output: a terse `.plans/<slug>/plan.md` an implementer can execute in a fresh session and a reviewer can scan in one screen. Soft length budget: ≤ 400 words for a typical plan. If it blows that, the work is probably `plan-large`.
+Output: a terse `.plans/<slug>/plan.html` an implementer can execute in a fresh session and a reviewer can scan in one screen — HTML so a UI change can carry an inline mockup and the plan gets review-tracking through the shared `.plans/_assets/` design system. Soft length budget: ≤ 400 words of prose for a typical plan. If it blows that, the work is probably `plan-large`.
 
 ## Process
 
@@ -55,14 +55,23 @@ If there are no Track A questions, no unanswered Track B questions, and no non-t
 
 ### Step 4 — Write the plan file
 
-Slug: kebab-case from the request, ≤ 4 words. If `.plans/<slug>/` exists, append `-2`, `-3`. Plan path: `.plans/<slug>/plan.md`.
+Slug: kebab-case from the request, ≤ 4 words. If `.plans/<slug>/` exists, append `-2`, `-3`. Plan path: `.plans/<slug>/plan.html`.
 
-Copy `references/plan-template.md` and fill it. Section order is fixed — `## Summary` lands first so a reviewer hits the elevator pitch before reference material.
+**Bootstrap assets first.** If `.plans/_assets/` does not exist, copy `plan.css`,
+`mockup.css`, `plan.js`, and `serve.js` from this skill's `references/assets/`
+into it. If it exists, leave it untouched.
 
-Three template invariants:
+Copy `references/plan-template.html` to `.plans/<slug>/plan.html` and fill it.
+Section order is fixed — the `summary` section lands first so a reviewer hits the
+elevator pitch before reference material. The full document contract (section
+ids, asset links, mockup vocabulary) is `references/contract.md`.
 
-- **`## Data model changes` is mandatory when persistence is touched.** Even a single-column change deserves the seven-bullet treatment — writing "N/A — <reason>" for backfill is itself a decision. Omission is not.
+Four template invariants:
+
+- **The `data-model` section is mandatory when persistence is touched.** Even a single-column change deserves the seven-bullet treatment — writing "N/A — <reason>" for backfill is itself a decision. Omission is not. Delete the section entirely when no persistence is touched.
 - **Per-file blocks are prose, not bullet lists.** The implementer reads the code for signatures. Reserve inline detail for genuinely novel files (new module, new API surface, novel error model).
+- **Mockups only for UI.** If the change renders or changes a screen, sketch it in the `files` section with the `.mock-*` vocabulary (`assets/mockup.css`). No UI change → no mockup.
+- **HTML-encode all filled content.** `&`→`&amp;`, `<`→`&lt;`, `>`→`&gt;` in element content; also `"`→`&quot;` in attributes. Code artifacts (`Promise<User>`, `x <> y`) break the markup or open an XSS hole otherwise. See `references/contract.md`.
 - **"Done when" uses EARS or GIVEN/WHEN/THEN.** Both grammars disqualify weasel words by leaving nowhere to put them.
 
 ### Step 5 — Self-review
@@ -79,8 +88,9 @@ Where `<USER PROMPT>` is:
 ## Posture
 plan-small
 
-## Plan content
-{{full content of .plans/<slug>/plan.md}}
+## Plan content (reviewer view — HTML, mockups elided)
+{{full content of .plans/<slug>/plan.html, with each <div class="mock-*">…</div>
+replaced by a one-line <!-- mockup: <description> --> placeholder}}
 
 ## Standards
 {{full content of relevant .agents/standards/ files, narrowed via rg if long}}
@@ -95,17 +105,18 @@ The reviewer is blind to `.plans/` — paste content inline.
 
 - Apply every **MUST-FIX** directly to the plan file.
 - Apply every **SHOULD-FIX** directly. If a SHOULD-FIX conflicts with a Step 3 user-confirmed decision, downgrade to CONSIDER and flag to the user rather than overriding.
-- Append every **CONSIDER** under `## Open questions (CONSIDER from review)` in the plan file.
+- Append every **CONSIDER** as a list item in the `open-questions` section of the plan file.
 
 ### Step 7 — Present
 
 Print:
 
 - The plan path.
-- The `## Summary` section, read back from the file (the file is canonical).
-- The `## Data model changes` section verbatim if present (schema decisions get front-of-presentation visibility).
+- The text of the `summary` section, read back from the file (the file is canonical).
+- The `data-model` section verbatim if present (schema decisions get front-of-presentation visibility).
 - The decisions/assumptions list.
 - The CONSIDER items appended in Step 6.
+- The review-tracking hint: `node .plans/_assets/serve.js`, then open the printed URL.
 
 Do not start implementing. The user decides when to invoke `/implement-plan` or `/implement-plan-audited`.
 
