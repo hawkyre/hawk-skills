@@ -1,0 +1,347 @@
+#!/usr/bin/env node
+/* serve.js — zero-dependency review-tracking server for HTML plans.
+ *
+ * Run it from anywhere; it serves the .plans/ directory it lives under:
+ *     node .plans/_assets/serve.js [--port 7777]
+ *
+ * Responsibilities (see references/contract.md):
+ *   - serve plan docs + assets over http://localhost:PORT (no file:// limits)
+ *   - parse each plan doc's <section data-section-id> blocks, hash their text,
+ *     and report NEW / MODIFIED / REVIEWED vs the reviewedHash in state.json
+ *   - persist review actions to state.json (review.* subtree only; the executor
+ *     owns increments.*), under a cooperative lock with atomic tmp+rename
+ *   - expose GET /api/plan/<slug> — the increment DAG parsed from data-*,
+ *     the parser-of-record for executor skills
+ *   - reject duplicate data-section-id / data-inc (HTTP 422)
+ *   - set a strict CSP + nosniff on every response; HTML-encode reflected values
+ */
+
+'use strict';
+const http = require('node:http');
+const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const path = require('node:path');
+const crypto = require('node:crypto');
+
+const ASSETS_DIR = __dirname;                  // .plans/_assets
+const PLANS_ROOT = path.dirname(ASSETS_DIR);   // .plans
+const PORT = (() => {
+  const i = process.argv.indexOf('--port');
+  const v = i !== -1 ? parseInt(process.argv[i + 1], 10) : NaN;
+  return Number.isInteger(v) ? v : 7777;
+})();
+
+const SCHEMA_VERSION = 1;
+
+// ---- helpers --------------------------------------------------------------
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+const CONTENT_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+};
+
+// Security headers on every response. `script-src 'self'` stays strict (the
+// important one — no inline/injected JS executes). `style-src` allows inline
+// styles because mockups, the progress bar, and templates legitimately use
+// `style="..."` for layout; inline-style injection is low-risk (no script
+// execution). Author-time HTML encoding remains the first line of defence.
+function securityHeaders(contentType) {
+  return {
+    'Content-Type': contentType,
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy':
+      "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'",
+  };
+}
+
+function send(res, status, contentType, body) {
+  res.writeHead(status, securityHeaders(contentType));
+  res.end(body);
+}
+const sendJson = (res, status, obj) =>
+  send(res, status, CONTENT_TYPES['.json'], JSON.stringify(obj, null, 2));
+
+// Our thrown errors use { code: <http status> }; Node fs errors use a STRING
+// .code (ENOENT, …). Never feed a string to writeHead — it throws and, inside a
+// .catch, becomes a fatal unhandled rejection. Coerce to a valid status.
+const httpStatus = (code) => (Number.isInteger(code) && code >= 100 && code < 600 ? code : 500);
+const errBody = (e) => ({ error: String(e.msg || e.message || e) });
+
+// ---- HTML parsing (controlled, non-nesting sections in our templates) ------
+
+// Returns [{ id, attrs:{...}, text }] for every <section ...> in the doc.
+// Our templates never nest <section>, so positional pairing is sound.
+function parseSections(html) {
+  const out = [];
+  // Consume quoted attribute spans whole so a `>` inside a value (e.g.
+  // data-done="x > 0") is not mistaken for the tag boundary.
+  const openRe = /<section\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
+  let m;
+  while ((m = openRe.exec(html)) !== null) {
+    const attrStr = m[1];
+    const innerStart = openRe.lastIndex;
+    const closeIdx = html.indexOf('</section>', innerStart);
+    const inner = closeIdx === -1 ? '' : html.slice(innerStart, closeIdx);
+    const attrs = {};
+    const aRe = /([\w-]+)="([^"]*)"/g;
+    let a;
+    while ((a = aRe.exec(attrStr)) !== null) attrs[a[1]] = a[2];
+    const id = attrs['data-section-id'];
+    if (!id) continue; // only data-section-id blocks are reviewable units
+    out.push({ id, attrs, text: normalizeText(inner) });
+  }
+  return out;
+}
+
+// textContent-equivalent: drop tags, collapse whitespace. Stable across
+// re-indentation so reformatting never flips a section to MODIFIED.
+function normalizeText(htmlFragment) {
+  return htmlFragment.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+const hash12 = (text) =>
+  crypto.createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 12);
+
+const splitAttr = (val) => (val || '').split(',').map((x) => x.trim()).filter(Boolean);
+
+// All plan docs in a slug dir, parsed. Throws {code:422,...} on duplicate ids.
+function parseSlug(slug) {
+  const dir = path.join(PLANS_ROOT, slug);
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.html'));
+  const sections = {};
+  const increments = [];
+  const seenSection = new Set();
+  const seenInc = new Set();
+  for (const f of files) {
+    const html = fs.readFileSync(path.join(dir, f), 'utf8');
+    for (const s of parseSections(html)) {
+      if (seenSection.has(s.id))
+        throw { code: 422, msg: `duplicate data-section-id "${s.id}" in ${f}` };
+      seenSection.add(s.id);
+      sections[s.id] = { currentHash: hash12(s.text) };
+      const inc = s.attrs['data-inc'];
+      if (inc !== undefined) {
+        const id = Number(inc);
+        if (!Number.isInteger(id) || id < 0)
+          throw { code: 422, msg: `data-inc "${inc}" must be a non-negative integer in ${f}` };
+        if (seenInc.has(id))
+          throw { code: 422, msg: `duplicate data-inc "${inc}" (= ${id}) in ${f}` };
+        seenInc.add(id);
+        for (const req of ['data-size', 'data-files', 'data-done'])
+          if (!s.attrs[req])
+            throw { code: 422, msg: `increment ${id} missing required ${req} in ${f}` };
+        const depends = splitAttr(s.attrs['data-depends']).map(Number);
+        if (depends.some((d) => !Number.isInteger(d)))
+          throw { code: 422, msg: `increment ${id} has a non-integer data-depends in ${f}` };
+        increments.push({
+          id,
+          size: s.attrs['data-size'],
+          depends,
+          files: splitAttr(s.attrs['data-files']),
+          done: s.attrs['data-done'],
+        });
+      }
+    }
+  }
+  increments.sort((a, b) => a.id - b.id);
+  return { sections, increments };
+}
+
+// ---- state.json (locked, atomic, disjoint-subtree) ------------------------
+
+const stateFile = (slug) => path.join(PLANS_ROOT, slug, 'state.json');
+const lockFile = (slug) => path.join(PLANS_ROOT, slug, 'state.json.lock');
+
+function blankState(slug) {
+  return { schemaVersion: SCHEMA_VERSION, slug, review: {}, increments: {} };
+}
+
+async function readState(slug) {
+  try {
+    const raw = await fsp.readFile(stateFile(slug), 'utf8');
+    const s = JSON.parse(raw);
+    if (typeof s.schemaVersion === 'number' && s.schemaVersion > SCHEMA_VERSION)
+      throw new Error(`state.json schemaVersion ${s.schemaVersion} newer than ${SCHEMA_VERSION}`);
+    const merged = { ...blankState(slug), ...s };
+    // Coerce the two subtrees to objects — a null/garbage value in the file
+    // must not propagate into property access later.
+    if (!merged.review || typeof merged.review !== 'object') merged.review = {};
+    if (!merged.increments || typeof merged.increments !== 'object') merged.increments = {};
+    return merged;
+  } catch (e) {
+    if (e.code === 'ENOENT') return blankState(slug);
+    throw e;
+  }
+}
+
+// Mutate ONLY the review.* subtree, under the cooperative lock.
+async function updateReview(slug, mutator) {
+  const lock = lockFile(slug);
+  // Evict a stale lock left by a crashed process (normal hold time is << 1s).
+  try {
+    const st = await fsp.stat(lock);
+    if (Date.now() - st.mtimeMs > 5000) await fsp.unlink(lock).catch(() => {});
+  } catch { /* ENOENT — no lock, fine */ }
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const fd = await fsp.open(lock, 'wx');
+      try {
+        const state = await readState(slug);
+        state.review = state.review || {};
+        mutator(state.review);
+        const tmp = stateFile(slug) + '.tmp';
+        await fsp.writeFile(tmp, JSON.stringify(state, null, 2));
+        await fsp.rename(tmp, stateFile(slug));
+        return state;
+      } finally {
+        await fd.close().catch(() => {});
+        await fsp.unlink(lock).catch(() => {});
+      }
+    } catch (e) {
+      if (e.code === 'EEXIST' && attempt < 40) {
+        await new Promise((r) => setTimeout(r, 50));
+        continue; // someone else holds the lock; back off ~2s total
+      }
+      throw e;
+    }
+  }
+}
+
+// ---- request handling -----------------------------------------------------
+
+function statusOf(section, reviewedHash) {
+  if (!reviewedHash) return 'new';
+  return section.currentHash === reviewedHash ? 'reviewed' : 'modified';
+}
+
+async function apiState(slug, res) {
+  const { sections, increments } = parseSlug(slug);
+  const state = await readState(slug);
+  const outSections = {};
+  for (const [id, sec] of Object.entries(sections)) {
+    const reviewedHash = state.review[id]?.reviewedHash ?? null;
+    outSections[id] = { status: statusOf(sec, reviewedHash), currentHash: sec.currentHash, reviewedHash: reviewedHash || null };
+  }
+  sendJson(res, 200, {
+    schemaVersion: SCHEMA_VERSION,
+    slug,
+    sections: outSections,
+    increments: state.increments || {},
+    incrementOrder: increments.map((i) => i.id),
+  });
+}
+
+async function apiReview(slug, body, res) {
+  const { sections } = parseSlug(slug);
+  const data = JSON.parse(body || '{}');
+  const targets = data.all ? Object.keys(sections) : [data.sectionId].filter(Boolean);
+  if (!targets.length) return sendJson(res, 400, { error: 'sectionId or all:true required' });
+  const now = new Date().toISOString();
+  await updateReview(slug, (review) => {
+    for (const id of targets) {
+      if (!Object.hasOwn(sections, id)) continue; // reject inherited keys (constructor, __proto__)
+      review[id] = { reviewedHash: sections[id].currentHash, reviewedAt: now };
+    }
+  });
+  // report back the new statuses
+  const out = {};
+  for (const id of targets) {
+    if (!Object.hasOwn(sections, id)) continue;
+    out[id] = { status: 'reviewed', reviewedHash: sections[id].currentHash };
+  }
+  sendJson(res, 200, { reviewed: out, count: Object.keys(out).length });
+}
+
+function apiPlan(slug, res) {
+  const { increments } = parseSlug(slug);
+  sendJson(res, 200, { slug, increments });
+}
+
+function listPlans() {
+  return fs.readdirSync(PLANS_ROOT, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && d.name !== '_assets')
+    .map((d) => d.name);
+}
+
+function indexPage() {
+  const items = listPlans().map((slug) => {
+    const docs = fs.readdirSync(path.join(PLANS_ROOT, slug)).filter((f) => f.endsWith('.html'));
+    const first = ['overview.html', 'plan.html'].find((f) => docs.includes(f)) ?? docs[0];
+    return first ? `<li><a href="/${esc(slug)}/${esc(first)}">${esc(slug)}</a></li>` : `<li>${esc(slug)} <em>(no .html)</em></li>`;
+  }).join('\n');
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Plans</title><link rel="stylesheet" href="/_assets/plan.css"></head>
+<body><div class="plan-wrap"><header class="plan-head"><h1>Plans</h1>
+<div class="plan-meta">served from ${esc(PLANS_ROOT)}</div></header>
+<section class="plan-section"><ul>${items || '<li><em>no plans yet</em></li>'}</ul></section>
+</div></body></html>`;
+}
+
+const ROOT_RESOLVED = path.resolve(PLANS_ROOT);
+
+function serveStatic(pathname, res) {
+  const rel = decodeURIComponent(pathname.replace(/^\/+/, ''));
+  const full = path.join(PLANS_ROOT, rel);
+  // Lexical guard: resolved path must stay within PLANS_ROOT (catches `..`).
+  if (!path.resolve(full).startsWith(ROOT_RESOLVED + path.sep))
+    return send(res, 403, CONTENT_TYPES['.html'], 'forbidden');
+  // Symlink guard: path.resolve is lexical and does NOT follow symlinks, so a
+  // symlink inside PLANS_ROOT pointing out (e.g. → /etc/passwd) would pass the
+  // check above. Resolve the real on-disk path and re-check.
+  let realFull;
+  try { realFull = fs.realpathSync(full); }
+  catch { return send(res, 404, CONTENT_TYPES['.html'], `<h1>404</h1><p>${esc(rel)}</p>`); }
+  if (realFull !== ROOT_RESOLVED && !realFull.startsWith(ROOT_RESOLVED + path.sep))
+    return send(res, 403, CONTENT_TYPES['.html'], 'forbidden');
+  fs.readFile(realFull, (err, buf) => {
+    if (err) return send(res, 404, CONTENT_TYPES['.html'], `<h1>404</h1><p>${esc(rel)}</p>`);
+    send(res, 200, CONTENT_TYPES[path.extname(realFull)] || 'application/octet-stream', buf);
+  });
+}
+
+const server = http.createServer((req, res) => {
+  try {
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+    const p = url.pathname;
+    const apiMatch = p.match(/^\/api\/(state|review|plan)\/([^/]+)\/?$/);
+    if (p === '/' || p === '/index.html') return send(res, 200, CONTENT_TYPES['.html'], indexPage());
+    if (apiMatch) {
+      const [, kind, slug] = apiMatch;
+      if (!listPlans().includes(slug)) return sendJson(res, 404, { error: `unknown plan "${slug}"` });
+      if (kind === 'state') return void apiState(slug, res).catch((e) => sendJson(res, httpStatus(e.code), errBody(e)));
+      if (kind === 'plan') return apiPlan(slug, res);
+      if (kind === 'review') {
+        if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST only' });
+        let body = '';
+        let aborted = false;
+        req.on('data', (c) => {
+          if (aborted) return;
+          if (body.length + c.length > 1e6) { // check before appending → precise cap
+            aborted = true;
+            sendJson(res, 413, { error: 'request body too large' }); // respond, THEN destroy
+            req.destroy();
+            return;
+          }
+          body += c;
+        });
+        req.on('end', () => { if (!aborted) apiReview(slug, body, res).catch((e) => sendJson(res, httpStatus(e.code), errBody(e))); });
+        return;
+      }
+    }
+    return serveStatic(p, res);
+  } catch (e) {
+    sendJson(res, httpStatus(e.code), errBody(e));
+  }
+});
+
+// Bind to loopback only — this is a local single-user review server; it must
+// not be reachable from the LAN.
+server.listen(PORT, '127.0.0.1', () => {
+  console.log(`plan tracker serving ${PLANS_ROOT}`);
+  console.log(`  → http://localhost:${PORT}/`);
+});
