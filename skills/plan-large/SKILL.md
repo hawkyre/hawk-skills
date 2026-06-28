@@ -198,10 +198,27 @@ Print, in order:
 - The text of `overview.html`'s `what-why` and `dag` sections, read back from the file (canonical).
 - A one-line pointer to each other file with what it contains.
 - The CONSIDER items appended in Step 9.
-- The review-tracking hint: `node .plans/_assets/serve.js`, then open the printed
-  URL to review with NEW / MODIFIED / REVIEWED tracking and live progress.
 
 Do not start implementing. Suggest `/implement-plan` (or `/implement-plan-audited mode=auto` for hours-long unattended runs).
+
+### Step 11 — Serve and open (always the last thing)
+
+The final action, every run: launch the tracker and open the plan in the browser with the OS's default opener.
+
+1. Start the server as a **persistent background process** (it must keep running after the command returns; skip if port 7777 is already serving — a running instance is a harmless no-op):
+
+   ```
+   node .plans/_assets/serve.js > /tmp/hawk-plan-serve.log 2>&1 &
+   ```
+
+2. Open `overview.html` (the reviewer's entry point) with whatever the OS offers — try each until one works:
+
+   ```
+   URL="http://localhost:7777/<slug>/overview.html"
+   xdg-open "$URL" 2>/dev/null || open "$URL" 2>/dev/null || start "" "$URL" 2>/dev/null || echo "Open: $URL"
+   ```
+
+   (`xdg-open` = Linux, `open` = macOS, `start` = Windows.) If none is available, print the URL.
 
 ## Failure modes
 

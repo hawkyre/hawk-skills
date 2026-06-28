@@ -116,9 +116,27 @@ Print:
 - The `data-model` section verbatim if present (schema decisions get front-of-presentation visibility).
 - The decisions/assumptions list.
 - The CONSIDER items appended in Step 6.
-- The review-tracking hint: `node .plans/_assets/serve.js`, then open the printed URL.
 
 Do not start implementing. The user decides when to invoke `/implement-plan` or `/implement-plan-audited`.
+
+### Step 8 — Serve and open (always the last thing)
+
+The final action, every run: launch the tracker and open the plan in the browser with the OS's default opener.
+
+1. Start the server as a **persistent background process** (it must keep running after the command returns; skip if port 7777 is already serving — a running instance is a harmless no-op):
+
+   ```
+   node .plans/_assets/serve.js > /tmp/hawk-plan-serve.log 2>&1 &
+   ```
+
+2. Open `plan.html` with whatever the OS offers — try each until one works:
+
+   ```
+   URL="http://localhost:7777/<slug>/plan.html"
+   xdg-open "$URL" 2>/dev/null || open "$URL" 2>/dev/null || start "" "$URL" 2>/dev/null || echo "Open: $URL"
+   ```
+
+   (`xdg-open` = Linux, `open` = macOS, `start` = Windows.) If none is available, print the URL.
 
 ## Failure modes
 
