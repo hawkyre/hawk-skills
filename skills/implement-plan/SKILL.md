@@ -13,9 +13,17 @@ description: Execute an approved plan increment-by-increment with deterministic 
 
 ### Step 1 — Bootstrap context
 
-Fresh session. Load:
+Fresh session. **First detect the plan format** (it determines how every later step parses increments and records outcomes):
 
-- The plan file and any sibling files (`overview.md`, `data-model.md`, `decisions.md`, `verification.md`, `contracts.md`, `inc-<N>-notes.md`).
+- If `.plans/<slug>/plan.html` or `overview.html` exists → **HTML path** (current format; see "Plan format: HTML" below).
+- Else if `.plans/<slug>/plan.md` exists → **Markdown path** (legacy; the steps below are written for it and are unchanged).
+- Else → stop and surface: no plan found.
+
+The Markdown path is preserved verbatim for pre-existing plans — do not refactor it. The HTML deltas are called out inline and consolidated in "Plan format: HTML" at the end of this section.
+
+Load:
+
+- The plan file and any sibling files — HTML: `overview.html`, `data-model.html`, `decisions.html`, `verification.html`, `contracts.html`; Markdown: the `.md` equivalents. Plus `inc-<N>-notes.md` (always Markdown, both formats).
 - Globally relevant standards only from `.agents/standards/` — the always-on baseline (commit style, security baseline, language conventions). Layer-specific standards load per increment in Step 3.1.
 - Index of available common-mistakes from `.agents/common-mistakes/`. Don't load them all yet — load per-increment based on what each increment touches.
 - The project check command (look it up; do not assume). Must run the full suite — tests, type-check, lint — not a partial scope. Also capture how to run a single test or single file; the retry ladder and done-criteria check need it.
@@ -23,11 +31,27 @@ Fresh session. Load:
 
 Progressive loading is the point — more standing context degrades adherence to each item. Per-increment loading keeps attention focused.
 
+#### Plan format: HTML
+
+When the HTML path is active, three things change from the Markdown steps below. Everything else (the per-increment loop, the retry ladder, the gates) is identical.
+
+1. **Increment extraction (replaces `## Inc N` headings + `**…**` fields).** Each increment is a `<section class="…increment" …>` carrying `data-*` attributes (canonical spec: `.plans/_assets/`-adjacent `references/contract.md`):
+   - `data-inc` → increment id · `data-size` → S/M/L · `data-depends` → comma-list of ids (empty = none) · `data-files` → comma-list of repo-relative paths · `data-done` → the EARS / GIVEN-WHEN-THEN string.
+   - Split comma-lists on `,` and trim; ids/paths never contain commas.
+   - **Cross-check:** if `serve.js` is running, `GET http://localhost:7777/api/plan/<slug>` returns the same DAG already parsed to JSON — the parser-of-record. Prefer it; text extraction is the offline fallback.
+
+2. **DAG source.** Build the ready-set from each increment section's `data-inc` / `data-depends`. (`overview.html`'s DAG section is human prose, not the machine source.)
+
+3. **Outcome recording (replaces the Step 3.10 Markdown append — the HTML doc is hand-authored and never machine-edited).** Per increment, after evidence is on disk:
+   - Append a narrative block to `.plans/<slug>/worklog.md` (append-only LLM journal): intent, what was done, attempts, evidence path, file list.
+   - Read-modify-write `.plans/<slug>/state.json` **under the lock** (`state.json.lock` via exclusive create; write `state.json.tmp`; `rename`; unlink) — set `increments[<id>] = {status, attempts, evidence, files, auditCheckpoint, updatedAt}`. Touch ONLY the `increments` subtree; never `review` (server-owned).
+   - Do NOT edit any `*.html` plan doc. The browser progress bar reads `state.json.increments` and reflects status live.
+
 ### Step 2 — Build the execution schedule
 
 Parse increments. Build a dependency DAG. Identify the ready set — increments whose dependencies are all `done`. Skip increments already completed in prior sessions.
 
-If `overview.md` declares an `Increment DAG`, that's the source of truth. Otherwise read each increment's `**Depends on:**` line.
+Markdown path: if `overview.md` declares an `Increment DAG`, that's the source of truth; otherwise read each increment's `**Depends on:**` line. HTML path: build the DAG from each increment section's `data-inc` / `data-depends` (see "Plan format: HTML").
 
 ### Step 3 — Execute increments
 
@@ -35,7 +59,7 @@ For each ready increment, run the per-increment loop below. Substeps are ordered
 
 #### 3.1 Load increment context
 
-- Read every file in the increment's `**Files:**` list that already exists. Don't open files outside the list.
+- Read every file in the increment's file list (`**Files:**` / HTML `data-files`) that already exists. Don't open files outside the list.
 - Load increment-specific standards and common-mistakes based on the files and domain (e.g. `auth/` → load auth standards; migration file present → load migration standards).
 - If the plan has a sibling `inc-<N>-notes.md`, read it now.
 
@@ -84,7 +108,7 @@ After 4 stages without a clean check, stop. The escalation message lists which s
 
 The check command passing means compile / lint / tests pass. It does not mean this increment did what was specified.
 
-Read the increment's `**Done when:**` line (EARS or GIVEN/WHEN/THEN). Produce concrete evidence:
+Read the increment's done-criterion (`**Done when:**` / HTML `data-done`, EARS or GIVEN/WHEN/THEN). Produce concrete evidence:
 
 - Endpoint changes: `curl` and capture the response. Compare to expected.
 - UI changes: render the page; capture observable state (HTML, screenshot, accessibility tree).
@@ -105,7 +129,7 @@ git diff --name-only HEAD > /tmp/hawk-implement-plan-touched-<inc>.log
 git ls-files --others --exclude-standard >> /tmp/hawk-implement-plan-touched-<inc>.log
 ```
 
-Compare to the increment's `**Files:**` list:
+Compare to the increment's declared file list (`**Files:**` / HTML `data-files`):
 
 - Actual ⊇ Declared (more touched than planned). Note in the commit body with a one-line reason ("also touched X because Y"). Legitimate causes: snapshot updates, auto-generated tests, formatter side effects on imported files. If the cause is non-trivial — a file the plan didn't anticipate — pause and ask.
 - Actual ⊂ Declared (fewer touched). Strong signal of incompleteness. Re-check the spec before marking done.
@@ -130,9 +154,11 @@ Targeted grep over the diff for things the check command won't catch:
 
 Pre-commit hooks catch most of this deterministically — this step is the fallback when they don't. Surface findings; don't auto-remove without confirmation.
 
-#### 3.10 Record outcome in the plan file
+#### 3.10 Record outcome
 
-Append a structured outcome under the increment block (not free prose):
+**HTML path:** record to `worklog.md` + `state.json.increments` under the lock, per "Plan format: HTML" item 3 — never edit the HTML doc. Skip the Markdown append below.
+
+**Markdown path:** append a structured outcome under the increment block (not free prose):
 
 ```markdown
 **Status:** done
@@ -204,6 +230,7 @@ The Process steps above are the source of truth. These are the floors that must 
 - Fresh sessions without context produce wrong code. Loading the plan, global standards, and increment-specific standards/common-mistakes is non-negotiable.
 - Never implement ahead of dependencies. The DAG exists for a reason.
 - Done means evidence on disk, not memory (Step 3.6). An increment without a verify log is not done — regardless of what the check command says.
+- HTML plans are hand-authored and never machine-edited: extract increments from `data-*`, record outcomes to `worklog.md` + `state.json.increments` (Step 1 "Plan format: HTML"). The Markdown path is preserved unchanged for legacy plans — detect format in Step 1, never assume.
 - Retries are layered, not repeated (Step 3.5). Each stage qualitatively different.
 - Behavior preservation by default when modifying existing code (Step 3.3). A failing pre-existing test post-modification, without a done-criteria explicitly calling out the change, is a regression.
 - File divergence is a signal, not a footnote (Step 3.7). Material divergence pauses the run.

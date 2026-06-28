@@ -7,7 +7,7 @@ description: Stress-test a plan file before committing to implementation. Catche
 
 ## Process
 
-1. **Load the plan and its context**: Read the plan file and any sibling files (shape.md, standards.md, references.md). Read the relevant `.agents/standards/` files that apply to the planned work.
+1. **Load the plan and its context**: Read the plan file(s) and any siblings. Plans are HTML — `.plans/<slug>/plan.html` (single-PR) or the `overview.html` / `data-model.html` / `plan.html` / `decisions.html` / `verification.html` / `contracts.html` set (multi-PR), plus `inc-<N>-notes.md`. Legacy plans may still be Markdown (`*.md`) — read whichever exists. Machine fields live on `data-*` attributes (increments: `data-inc`, `data-size`, `data-depends`, `data-files`, `data-done`); read those when checking dependency ordering and done-criteria. Read the relevant `.agents/standards/` files that apply to the planned work.
 
 2. **Review for technical soundness**:
    - Are the architectural decisions correct given the codebase?

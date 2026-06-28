@@ -64,19 +64,20 @@ Worked examples (assuming increments numbered Inc 1, Inc 2, …):
 - 1 × L → 4 (end, promote Inc 1). → 1 audit at Inc 1.
 - S, S, M, S, L, M, M → 1, 2, 4, 5 (ckpt Inc 4, reset), 4, 6 (ckpt Inc 6, reset), 2 (end, promote Inc 7). → 3 audits at Inc 4, Inc 6, Inc 7.
 
-Annotation format — for each chosen checkpoint increment, insert a single line directly under its `**Done when:**` line (or under the increment heading if no done-when exists):
+Annotation format — for each chosen checkpoint increment:
 
-```
-**Audit checkpoint:** yes
-```
+- **Markdown plan:** insert a single `**Audit checkpoint:** yes` line directly under its `**Done when:**` line (or under the increment heading if none). Do not modify any other part of the plan.
+- **HTML plan:** the doc is hand-authored and never machine-edited (the same D3 rule `implement-plan` follows). Record the checkpoint flag in `state.json.increments[<id>].auditCheckpoint = true` (executor-owned subtree, under the lock) instead. When the per-increment outcome is written later (`implement-plan` Step 3.10), carry the flag forward — set `auditCheckpoint: true` in that record rather than overwriting it to false. A pre-existing `**Audit checkpoint:** yes` line in a Markdown plan, or `auditCheckpoint:true` in HTML `state.json`, is the user/resumed-run override that skips the heuristic.
 
-Do not modify any other part of the plan. After annotation, summarize to the user (in both modes): "Annotated N audit checkpoints across M increments — audits will run after: Inc X, Inc Y, Inc Z."
+This skill inherits `implement-plan` Step 1's format detection and the HTML extraction/recording rules ("Plan format: HTML"); everything below that writes "the plan file" means `state.json` + `worklog.md` on the HTML path, never the `*.html` doc.
+
+After annotation, summarize to the user (in both modes): "Annotated N audit checkpoints across M increments — audits will run after: Inc X, Inc Y, Inc Z."
 
 ### Step 2 — Execution loop
 
 For each increment in dependency order:
 
-1. Read forwarded markers. Before starting, check whether any earlier audit checkpoint wrote a `**Plan-override raised at ckpt N:** see <ref>` line under this increment's block (written in Step 4). If present, read the referenced audit note and adjust the implementation approach. Do not silently ignore a forwarded marker.
+1. Read forwarded markers. Before starting, check whether any earlier audit checkpoint flagged a plan-override for this increment (written in Step 4) — a `**Plan-override raised at ckpt N:**` line under its block on the Markdown path, or `state.json.increments[<id>].planOverride` on the HTML path. If present, read the referenced audit note and adjust the implementation approach. Do not silently ignore a forwarded marker.
 
 2. Implement. Run `implement-plan` Step 3 in full (substeps 3.1–3.10, including the done-criteria check, the file-divergence check, and the structured outcome record). The per-increment commit fires via CC-1 (`implement-plan` Step 3.5).
 
@@ -192,11 +193,10 @@ When all specialists return:
 
 4. Plan-override flagging. If the merged output reveals that the approach taken in any covered increment was structurally wrong (a specialist's `Why:` describes a fundamentally cleaner architecture, or a fix touches the public API the plan specified):
    - Apply the fix (the immediate code is now corrected).
-   - Propagate the override. Walk the remaining increments in the DAG. For any increment that depends on the audited range — directly or transitively — append a line under its block:
-     ```
-     **Plan-override raised at ckpt N:** see <audit note ref>; review approach before implementing.
-     ```
-     This is the marker that Step 2's "Read forwarded markers" sub-step picks up. Later increments cannot silently rebuild on a flawed foundation.
+   - Propagate the override. Walk the remaining increments in the DAG. For any increment that depends on the audited range — directly or transitively — record a forward marker:
+     - **Markdown plan:** append a line under that increment's block: `**Plan-override raised at ckpt N:** see <audit note ref>; review approach before implementing.`
+     - **HTML plan:** set `state.json.increments[<id>].planOverride = "ckptN: <audit note ref>"` (under the lock) and append the same note to `worklog.md` — never edit the `*.html` doc.
+     This is the marker that Step 2's "Read forwarded markers" sub-step picks up (from the increment block on the Markdown path, or from `state.json.increments[<id>].planOverride` on the HTML path). Later increments cannot silently rebuild on a flawed foundation.
    - Architecture-level overrides stop at the next checkpoint regardless of mode. If the override is structural (changes module boundaries, public API surface, data model in a way the plan didn't anticipate), auto mode finishes the current run-up to the next checkpoint, runs that checkpoint's audit, then stops and surfaces to the user. Bounds the blast radius to one additional checkpoint of work.
 
 5. Behavior-preservation FIXes. Any FIX that changes external behavior (HTTP response shape, function signature, side effects, error semantics, persisted data):
@@ -206,7 +206,7 @@ When all specialists return:
 
 6. Update the specialist findings ledger (in-memory from Step 1) with this checkpoint's per-specialist counts. The next checkpoint's triage sees this.
 
-7. Append the structured audit note under the checkpoint increment:
+7. Record the structured audit note. Markdown plan: append it under the checkpoint increment. HTML plan: append it to `worklog.md` (the doc is never machine-edited). Same content either way:
 
 ```
 **Audit checkpoint:** yes (executed)
