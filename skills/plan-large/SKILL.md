@@ -211,6 +211,17 @@ node .plans/_assets/serve.js --open "<slug>/overview.html" > /tmp/hawk-plan-serv
 
 `serve.js` prefers port 7777 and falls back to the next free port if it's taken (so two repos never collide), then opens `<slug>/overview.html` (the reviewer's entry point) via the OS opener (`xdg-open` / `open` / `start`). It prints the chosen URL as a `PLAN_SERVER_URL=…` line in the log — surface that to the user in case no browser opener is available.
 
+### Step 12 — Watch for in-page feedback
+
+Every plan doc has a feedback composer (a per-section "note" and a plan-wide box). Sent notes append to `.plans/<slug>/feedback.jsonl`, one `{ ts, sectionId, text }` per line. Tell the user they can type feedback directly in any plan page and send it whenever they want — then watch for it:
+
+1. Record the cursor: `N` = current line count of `feedback.jsonl` (0 if absent).
+2. Wait for new feedback with the **Monitor** tool (until-loop): condition = `wc -l < .plans/<slug>/feedback.jsonl` is greater than `N`. This yields control while the user reviews; a chat message interrupts it normally.
+3. When it fires, read lines `N+1…end`. For each entry, act on it — revise the document/section named by `sectionId` (or the whole plan for a global note); if a MUST-FIX-level change to the DAG results, update `plan.html` and `overview.html` as a pair, then re-run the `.plan-reviewer` self-review.
+4. Advance `N` to the new line count and watch again. Stop when the user says they're done (or starts driving via chat). Never re-process a line below the cursor — each entry is handled once.
+
+The page is an additional channel, not a replacement: plain chat feedback works exactly as before.
+
 ## Failure modes
 
 - **`data-model.html` becomes "N/A" all the way down.** That's the lazy-patch case. If a feature touches persistence at all, entities, constraints, query patterns, and migration must be concrete. "N/A" on rollback or backfill is sometimes legitimate; "N/A" on constraints or query patterns is the model dodging — the reviewer will catch it as MUST-FIX.

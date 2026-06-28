@@ -80,6 +80,19 @@ const sendJson = (res, status, obj) =>
 const httpStatus = (code) => (Number.isInteger(code) && code >= 100 && code < 600 ? code : 500);
 const errBody = (e) => ({ error: String(e.msg || e.message || e) });
 
+// Accumulate a request body with a hard 1 MB cap, then hand it to cb. On
+// overflow it responds 413 and never calls cb.
+function readBody(req, res, cb) {
+  let body = '';
+  let aborted = false;
+  req.on('data', (c) => {
+    if (aborted) return;
+    if (body.length + c.length > 1e6) { aborted = true; sendJson(res, 413, { error: 'request body too large' }); req.destroy(); return; }
+    body += c;
+  });
+  req.on('end', () => { if (!aborted) cb(body); });
+}
+
 // ---- HTML parsing (controlled, non-nesting sections in our templates) ------
 
 // Returns [{ id, attrs:{...}, text }] for every <section ...> in the doc.
@@ -270,6 +283,32 @@ function apiPlan(slug, res) {
   sendJson(res, 200, { slug, increments });
 }
 
+// ---- feedback (append-only log; the AI reads it, the page writes it) -------
+
+const feedbackFile = (slug) => path.join(PLANS_ROOT, slug, 'feedback.jsonl');
+
+function readFeedback(slug) {
+  try {
+    return fs.readFileSync(feedbackFile(slug), 'utf8').split('\n').filter(Boolean)
+      .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  } catch (e) { if (e.code === 'ENOENT') return []; throw e; }
+}
+
+async function apiFeedbackPost(slug, body, res) {
+  const data = JSON.parse(body || '{}');
+  const text = typeof data.text === 'string' ? data.text.trim() : '';
+  if (!text) return sendJson(res, 400, { error: 'text required' });
+  if (text.length > 5000) return sendJson(res, 413, { error: 'feedback too long (max 5000 chars)' });
+  // One JSON object per line — appends are the only writes, so no lock needed.
+  const entry = { ts: new Date().toISOString(), sectionId: data.sectionId || null, text };
+  await fsp.appendFile(feedbackFile(slug), JSON.stringify(entry) + '\n');
+  sendJson(res, 200, { ok: true, count: readFeedback(slug).length });
+}
+
+function apiFeedbackGet(slug, res) {
+  sendJson(res, 200, { slug, feedback: readFeedback(slug) });
+}
+
 function listPlans() {
   return fs.readdirSync(PLANS_ROOT, { withFileTypes: true })
     .filter((d) => d.isDirectory() && d.name !== '_assets')
@@ -316,29 +355,21 @@ const server = http.createServer((req, res) => {
   try {
     const url = new URL(req.url, `http://localhost:${PORT}`);
     const p = url.pathname;
-    const apiMatch = p.match(/^\/api\/(state|review|plan)\/([^/]+)\/?$/);
+    const apiMatch = p.match(/^\/api\/(state|review|plan|feedback)\/([^/]+)\/?$/);
     if (p === '/' || p === '/index.html') return send(res, 200, CONTENT_TYPES['.html'], indexPage());
     if (apiMatch) {
       const [, kind, slug] = apiMatch;
       if (!listPlans().includes(slug)) return sendJson(res, 404, { error: `unknown plan "${slug}"` });
       if (kind === 'state') return void apiState(slug, res).catch((e) => sendJson(res, httpStatus(e.code), errBody(e)));
       if (kind === 'plan') return apiPlan(slug, res);
+      if (kind === 'feedback') {
+        if (req.method === 'GET') return apiFeedbackGet(slug, res);
+        if (req.method !== 'POST') return sendJson(res, 405, { error: 'GET or POST' });
+        return readBody(req, res, (body) => apiFeedbackPost(slug, body, res).catch((e) => sendJson(res, httpStatus(e.code), errBody(e))));
+      }
       if (kind === 'review') {
         if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST only' });
-        let body = '';
-        let aborted = false;
-        req.on('data', (c) => {
-          if (aborted) return;
-          if (body.length + c.length > 1e6) { // check before appending → precise cap
-            aborted = true;
-            sendJson(res, 413, { error: 'request body too large' }); // respond, THEN destroy
-            req.destroy();
-            return;
-          }
-          body += c;
-        });
-        req.on('end', () => { if (!aborted) apiReview(slug, body, res).catch((e) => sendJson(res, httpStatus(e.code), errBody(e))); });
-        return;
+        return readBody(req, res, (body) => apiReview(slug, body, res).catch((e) => sendJson(res, httpStatus(e.code), errBody(e))));
       }
     }
     return serveStatic(p, res);

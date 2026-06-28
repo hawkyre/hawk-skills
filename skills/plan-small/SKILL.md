@@ -129,6 +129,17 @@ node .plans/_assets/serve.js --open "<slug>/plan.html" > /tmp/hawk-plan-serve.lo
 
 `serve.js` prefers port 7777 and falls back to the next free port if it's taken (so two repos never collide), then opens `<slug>/plan.html` via the OS opener (`xdg-open` / `open` / `start`). It prints the chosen URL as a `PLAN_SERVER_URL=…` line in the log — surface that to the user in case no browser opener is available.
 
+### Step 9 — Watch for in-page feedback
+
+The plan page has a feedback composer (a per-section "note" and a plan-wide box). Sent notes append to `.plans/<slug>/feedback.jsonl`, one `{ ts, sectionId, text }` per line. Tell the user they can type feedback directly in the page and send it whenever they want — then watch for it:
+
+1. Record the cursor: `N` = current line count of `feedback.jsonl` (0 if absent).
+2. Wait for new feedback with the **Monitor** tool (until-loop): condition = `wc -l < .plans/<slug>/feedback.jsonl` is greater than `N`. This yields control while the user reviews; a chat message from the user interrupts it normally.
+3. When it fires, read lines `N+1…end`. For each entry, act on it — revise the section named by `sectionId` (or the whole plan for a global note), answer a question, or record a decision in the plan — then re-run the self-review if the change is non-trivial.
+4. Advance `N` to the new line count and watch again. Stop when the user says they're done (or starts driving via chat). Never re-process a line below the cursor — each entry is handled once.
+
+The page is an additional channel, not a replacement: plain chat feedback works exactly as before.
+
 ## Failure modes
 
 - **The reviewer keeps finding MUST-FIX after two passes.** Stop applying patch-fix-patch. Surface the open MUST-FIX list to the user — the underlying disagreement is usually a Step 3 decision the plan went around.

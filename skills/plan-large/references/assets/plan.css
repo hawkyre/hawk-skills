@@ -121,6 +121,35 @@ small, .muted { color: var(--faint); }
 }
 .review-ctl button:hover { border-color: var(--ink); color: var(--ink); }
 
+/* ---- feedback composer ----------------------------------------------- */
+
+.fb-composer { margin-top: var(--s2); }
+.fb-input {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 3.2rem;
+  font: inherit; font-size: .92rem; color: var(--ink);
+  background: var(--paper); border: 1px solid var(--line-bold); border-radius: 4px;
+  padding: .55rem .7rem;
+}
+.fb-input:focus { outline: 2px solid var(--ink); outline-offset: -1px; border-color: var(--ink); }
+.fb-input::placeholder { color: var(--faint); }
+.fb-row { display: flex; align-items: center; gap: .7rem; margin-top: .5rem; }
+.fb-send {
+  font: inherit; font-size: .8rem; cursor: pointer; color: #fff; background: var(--ink);
+  border: 1px solid var(--ink); border-radius: 4px; padding: .3rem .8rem;
+}
+.fb-send:hover { background: #000; }
+.fb-send:disabled { opacity: .5; cursor: default; }
+.fb-status { font-family: var(--mono); font-size: .72rem; color: var(--soft); }
+.fb-toggle {
+  font: inherit; font-size: .72rem; cursor: pointer;
+  border: 1px solid var(--line-bold); background: var(--surface); color: var(--soft);
+  border-radius: 4px; padding: .15rem .55rem;
+}
+.fb-toggle:hover { border-color: var(--ink); color: var(--ink); }
+.fb-global { opacity: 1; }
+.fb-global h2 { font-size: 1.1rem; }
+.fb-global .muted { margin-top: .4rem; }
+
 /* ---- increment cards ------------------------------------------------- */
 
 .increment dl { display: grid; grid-template-columns: max-content 1fr; gap: .45rem 1.4rem; margin: 1rem 0 0; font-size: .95rem; }

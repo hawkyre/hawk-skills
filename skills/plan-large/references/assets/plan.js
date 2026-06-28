@@ -44,20 +44,77 @@
     badge.textContent = status;
   }
 
-  function addControl(section, label, onClick) {
+  function controlBox(section) {
     let ctl = section.querySelector('.review-ctl');
-    if (!ctl) {
-      ctl = document.createElement('div');
-      ctl.className = 'review-ctl';
-      section.appendChild(ctl);
-    }
-    ctl.innerHTML = '';
-    const btn = document.createElement('button');
-    btn.type = 'button';
+    if (!ctl) { ctl = document.createElement('div'); ctl.className = 'review-ctl'; section.appendChild(ctl); }
+    return ctl;
+  }
+
+  // Update the review button in place (re-callable without wiping sibling buttons).
+  function addControl(section, label, onClick) {
+    const ctl = controlBox(section);
+    let btn = ctl.querySelector('button[data-review-btn]');
+    if (!btn) { btn = document.createElement('button'); btn.type = 'button'; btn.setAttribute('data-review-btn', ''); ctl.insertBefore(btn, ctl.firstChild); }
     btn.textContent = label;
-    btn.addEventListener('click', onClick);
-    ctl.appendChild(btn);
+    btn.onclick = onClick;
     return btn;
+  }
+
+  // ---- feedback composer --------------------------------------------------
+
+  function postFeedback(slug, payload) {
+    return fetch(`/api/feedback/${encodeURIComponent(slug)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+  }
+
+  // A textarea + send button that POSTs feedback (optionally tagged to a section).
+  function composer(slug, sectionId, mount, placeholder) {
+    const box = document.createElement('div'); box.className = 'fb-composer';
+    const ta = document.createElement('textarea'); ta.className = 'fb-input'; ta.rows = 2; ta.placeholder = placeholder;
+    const row = document.createElement('div'); row.className = 'fb-row';
+    const send = document.createElement('button'); send.type = 'button'; send.className = 'fb-send'; send.textContent = 'send feedback';
+    const status = document.createElement('span'); status.className = 'fb-status';
+    row.appendChild(send); row.appendChild(status);
+    box.appendChild(ta); box.appendChild(row); mount.appendChild(box);
+    const submit = async () => {
+      const text = ta.value.trim(); if (!text) return;
+      send.disabled = true; status.textContent = 'sending…';
+      try {
+        const r = await postFeedback(slug, sectionId ? { sectionId, text } : { text });
+        if (r.ok) { ta.value = ''; status.textContent = 'sent ✓'; setTimeout(() => { status.textContent = ''; }, 2500); }
+        else status.textContent = 'failed';
+      } catch { status.textContent = 'server offline'; }
+      send.disabled = false;
+    };
+    send.addEventListener('click', submit);
+    ta.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') submit(); });
+    return ta;
+  }
+
+  // A "note" toggle in a section's control box that reveals a per-section composer.
+  function addNote(section, slug, id) {
+    const ctl = controlBox(section);
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'fb-toggle'; btn.textContent = 'note';
+    let box = null;
+    btn.addEventListener('click', () => {
+      if (box) { box.remove(); box = null; return; }
+      box = document.createElement('div'); section.appendChild(box);
+      composer(slug, id, box, 'feedback on this section…').focus();
+    });
+    ctl.appendChild(btn);
+  }
+
+  // A plan-wide feedback section appended at the end.
+  function addGlobalFeedback(slug) {
+    const wrap = document.querySelector('.plan-wrap');
+    if (!wrap || wrap.querySelector('.fb-global')) return;
+    const box = document.createElement('section'); box.className = 'plan-section fb-global';
+    const h = document.createElement('h2'); h.textContent = 'Feedback'; box.appendChild(h);
+    const hint = document.createElement('p'); hint.className = 'muted'; hint.textContent = 'Type a note and send — the AI watching this plan picks it up when you send.';
+    box.appendChild(hint);
+    wrap.appendChild(box);
+    composer(slug, null, box, 'overall feedback on this plan…');
   }
 
   function renderProgress(increments, order) {
@@ -111,6 +168,7 @@
           addControl(section, 'reviewed ✓', () => {});
         }
       });
+      addNote(section, slug, id);
     });
 
     renderProgress(state.increments || {}, state.incrementOrder);
@@ -118,6 +176,7 @@
       const r = await postReview(slug, { all: true });
       if (r.ok) serverMode(slug); // re-render from fresh state
     });
+    addGlobalFeedback(slug);
   }
 
   // ---- OFFLINE mode -------------------------------------------------------

@@ -134,6 +134,16 @@ non-integer `data-depends` token, or an increment missing a required
   cross-check their own text extraction against.
 - `POST /api/review/<slug>` body `{ sectionId }` or `{ all: true }` → marks
   section(s) reviewed; writes `review.*` under the lock; returns `{ reviewed, count }`.
+- `POST /api/feedback/<slug>` body `{ text, sectionId? }` → appends one line to
+  `.plans/<slug>/feedback.jsonl`; returns `{ ok, count }`. `GET /api/feedback/<slug>`
+  → `{ slug, feedback: [{ ts, sectionId, text }] }`.
+
+**Feedback channel.** The page has a composer (per-section "note" + a plan-wide
+box). When the user sends, the entry lands in append-only `feedback.jsonl`
+(`{ ts, sectionId, text }` per line). The plan/executor skills **watch** this file
+(Monitor / poll on line count) and act on new entries when the user sends them —
+the user's async back-channel into the running session. The AI never writes it;
+it tracks a cursor (delivered line count) so each entry is handled once.
 
 **state.json schema (`v1`):**
 
