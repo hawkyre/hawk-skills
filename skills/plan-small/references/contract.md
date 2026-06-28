@@ -114,8 +114,11 @@ headings, and `data-*` attributes verbatim.
 
 ## The tracking server (serve.js)
 
-Run `node .plans/_assets/serve.js [--port 7777]` (loopback-only, default port
-7777). It validates and serves the `.plans/` directory.
+Run `node .plans/_assets/serve.js` (loopback-only). It validates and serves the
+`.plans/` directory. Port selection: prefers `7777` and auto-falls back to the
+next free port if taken (so two repos never collide); `--port N` forces a port.
+`--open <slug>/<file>.html` opens that page in the OS browser once bound. The
+chosen base URL is printed as a `PLAN_SERVER_URL=…` line on startup.
 
 **Validation** (HTTP 422 + the offending id): duplicate `data-section-id` (across
 the whole slug), duplicate `data-inc`, a non-integer/negative `data-inc`, a

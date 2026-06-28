@@ -184,9 +184,12 @@ The project check command (`bun run c`, `pnpm typecheck`, `mix test`, etc.) is l
 Plans are HTML, so open them in a browser. For review tracking — **NEW / MODIFIED / REVIEWED** badges per section, a "mark reviewed" control, and a live implementation-progress bar — start the bundled local server (loopback-only, zero dependencies):
 
 ```sh
-node .plans/_assets/serve.js          # then open the printed http://localhost:7777/ URL
-node .plans/_assets/serve.js --port 8080   # if 7777 is taken / a second repo
+node .plans/_assets/serve.js                         # auto-picks a free port, prints PLAN_SERVER_URL
+node .plans/_assets/serve.js --open billing/overview.html   # also opens it in your browser
+node .plans/_assets/serve.js --port 8080             # force a specific port
 ```
+
+`plan-small` / `plan-large` already run the `--open` form for you as their last step — a plan pops open in the browser automatically. It prefers port 7777 and falls back to the next free one if it's taken, so two repos never collide.
 
 Opened directly as a `file://`, a plan still renders and remembers review checkmarks in `localStorage`; the server adds change-tracking and shared progress.
 

@@ -25,10 +25,18 @@ const crypto = require('node:crypto');
 
 const ASSETS_DIR = __dirname;                  // .plans/_assets
 const PLANS_ROOT = path.dirname(ASSETS_DIR);   // .plans
-const PORT = (() => {
+// --port forces a port (errors if busy); omit it to auto-pick: prefer 7777,
+// then the next free port, so two repos' servers never collide.
+const argPort = (() => {
   const i = process.argv.indexOf('--port');
   const v = i !== -1 ? parseInt(process.argv[i + 1], 10) : NaN;
-  return Number.isInteger(v) ? v : 7777;
+  return Number.isInteger(v) ? v : null;
+})();
+const PORT = argPort ?? 7777;                  // preferred/start port
+// --open <slug>/<file>.html → open that page in the OS browser once bound.
+const OPEN_PATH = (() => {
+  const i = process.argv.indexOf('--open');
+  return i !== -1 ? (process.argv[i + 1] || '') : null;
 })();
 
 const SCHEMA_VERSION = 1;
@@ -339,9 +347,39 @@ const server = http.createServer((req, res) => {
   }
 });
 
-// Bind to loopback only — this is a local single-user review server; it must
-// not be reachable from the LAN.
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`plan tracker serving ${PLANS_ROOT}`);
-  console.log(`  → http://localhost:${PORT}/`);
+// Open a URL with the OS default opener (best-effort; never throws).
+function openBrowser(url) {
+  const { spawn } = require('node:child_process');
+  const [cmd, args] =
+    process.platform === 'darwin' ? ['open', [url]] :
+    process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] :
+    ['xdg-open', [url]];
+  try {
+    const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+    child.on('error', () => {}); // opener missing — URL is printed, don't crash
+    child.unref();
+  } catch { /* ignore */ }
+}
+
+// Bind to loopback only — local single-user review server, never LAN-reachable.
+// Auto-pick a free port when --port wasn't given: try PORT, then PORT+1…+20,
+// then let the OS assign one.
+let bound = false;
+server.on('error', (e) => {
+  if (!bound && e.code === 'EADDRINUSE' && argPort === null) {
+    const tried = server.__port ?? PORT;
+    if (tried < PORT + 20) { server.__port = tried + 1; server.listen(server.__port, '127.0.0.1'); return; }
+    server.listen(0, '127.0.0.1'); return; // 0 → OS picks any free port
+  }
+  console.error(`serve.js: ${e.message}`);
+  process.exit(1);
 });
+server.on('listening', () => {
+  bound = true;
+  const base = `http://127.0.0.1:${server.address().port}/`;
+  console.log(`plan tracker serving ${PLANS_ROOT}`);
+  console.log(`PLAN_SERVER_URL=${base}`);      // machine-readable; the skill greps this
+  console.log(`  → ${base}`);
+  if (OPEN_PATH !== null) openBrowser(base + OPEN_PATH.replace(/^\/+/, ''));
+});
+server.listen(PORT, '127.0.0.1');

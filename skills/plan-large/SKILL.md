@@ -203,22 +203,13 @@ Do not start implementing. Suggest `/implement-plan` (or `/implement-plan-audite
 
 ### Step 11 — Serve and open (always the last thing)
 
-The final action, every run: launch the tracker and open the plan in the browser with the OS's default opener.
+The final action, every run: launch the tracker, which auto-picks a free port and opens the plan in the browser itself. One command, as a **persistent background process** (it must keep serving after the command returns):
 
-1. Start the server as a **persistent background process** (it must keep running after the command returns; skip if port 7777 is already serving — a running instance is a harmless no-op):
+```
+node .plans/_assets/serve.js --open "<slug>/overview.html" > /tmp/hawk-plan-serve.log 2>&1 &
+```
 
-   ```
-   node .plans/_assets/serve.js > /tmp/hawk-plan-serve.log 2>&1 &
-   ```
-
-2. Open `overview.html` (the reviewer's entry point) with whatever the OS offers — try each until one works:
-
-   ```
-   URL="http://localhost:7777/<slug>/overview.html"
-   xdg-open "$URL" 2>/dev/null || open "$URL" 2>/dev/null || start "" "$URL" 2>/dev/null || echo "Open: $URL"
-   ```
-
-   (`xdg-open` = Linux, `open` = macOS, `start` = Windows.) If none is available, print the URL.
+`serve.js` prefers port 7777 and falls back to the next free port if it's taken (so two repos never collide), then opens `<slug>/overview.html` (the reviewer's entry point) via the OS opener (`xdg-open` / `open` / `start`). It prints the chosen URL as a `PLAN_SERVER_URL=…` line in the log — surface that to the user in case no browser opener is available.
 
 ## Failure modes
 
