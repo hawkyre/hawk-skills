@@ -189,7 +189,7 @@ The plan skill's own slug-collision logic (`-2`, `-3`) handles duplicates. Hardc
 
 ## Routed to plans (big fixes)
 
-- {{cluster name}} → `.plans/{{slug}}/plan.md` (plan-small | plan-large)
+- {{cluster name}} → `.plans/{{slug}}/plan.html` (plan-small | plan-large)
   Why this needs a plan: {{summary}}
   Specialists involved: ...
   Plan-override: yes (omit when no)

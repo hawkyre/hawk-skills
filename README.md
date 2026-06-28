@@ -111,8 +111,8 @@ agent for their self-review pass — same shape, plan-shaped brief.
 | Skill                                              | Job                                                                                                                                                                                                                                          |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`coding-process`](skills/coding-process/SKILL.md) | Entry point. Reads the task, routes to the right skill below.                                                                                                                                                                                |
-| [`plan-small`](skills/plan-small/SKILL.md)         | One-PR change. Human-readable plan format (summary first, decisions/assumptions as reference). Two-track question gate: product/design = ask, code-architecture = search the code first. Writes `.plans/<slug>/plan.md`, then runs an independent self-review subagent that improves the plan before showing it to you. |
-| [`plan-large`](skills/plan-large/SKILL.md)         | Multi-PR feature. Same two-track question gate plus a `## Increment DAG` section after the summary. Self-review subagent checks increment ordering and dependency correctness.                                                                                                                                          |
+| [`plan-small`](skills/plan-small/SKILL.md)         | One-PR change. Writes an HTML plan (`.plans/<slug>/plan.html`) — summary first, decisions/assumptions as reference, inline UI mockups where a screen changes, rendered through the shared `.plans/_assets/` design system. Two-track question gate: product/design = ask, code-architecture = search the code first. Runs an independent self-review subagent that improves the plan before showing it to you. |
+| [`plan-large`](skills/plan-large/SKILL.md)         | Multi-PR feature. Writes an HTML plan set (`overview.html`, `data-model.html`, `plan.html`, …) with an Increment DAG and inline mockups. Self-review subagent checks increment ordering and dependency correctness.                                                                                                                                          |
 | [`review-plan`](skills/review-plan/SKILL.md)       | Adversarial review of a plan file.                                                                                                                                                                                                           |
 
 ### Execution
@@ -170,13 +170,25 @@ These skills assume three lightweight conventions:
 
 | Path                       | What it is                                                                   |
 | -------------------------- | ---------------------------------------------------------------------------- |
-| `.plans/<slug>/plan.md`    | Plan files. `plan-*` writes them; `implement-plan*` reads them.              |
+| `.plans/<slug>/*.html`     | Plan files (HTML). `plan-*` writes them; `implement-plan*` reads increments off their `data-*` attributes. Legacy `*.md` plans are still read. |
+| `.plans/_assets/`          | Shared design system copied once per repo: `plan.css`, `mockup.css`, `plan.js`, `serve.js`. Source lives in each plan skill's `references/assets/` (`plan-large` is canonical; `plan-small` mirrors it). |
 | `.agents/standards/`       | Your house conventions. Skills look up `index.yml` and read what's relevant. |
 | `.agents/common-mistakes/` | Repo-specific gotchas. Same lookup pattern.                                  |
 
 The `index.yml` files are plain YAML with topic → file mappings. Bootstrap them empty; the skills will tell you when they want one.
 
 The project check command (`bun run c`, `pnpm typecheck`, `mix test`, etc.) is looked up — never assumed.
+
+### Reviewing plans
+
+Plans are HTML, so open them in a browser. For review tracking — **NEW / MODIFIED / REVIEWED** badges per section, a "mark reviewed" control, and a live implementation-progress bar — start the bundled local server (loopback-only, zero dependencies):
+
+```sh
+node .plans/_assets/serve.js          # then open the printed http://localhost:7777/ URL
+node .plans/_assets/serve.js --port 8080   # if 7777 is taken / a second repo
+```
+
+Opened directly as a `file://`, a plan still renders and remembers review checkmarks in `localStorage`; the server adds change-tracking and shared progress.
 
 ### Big-output discipline
 
